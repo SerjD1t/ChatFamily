@@ -1,0 +1,7 @@
+.env
+data/
+uploads/
+*.log
+.go-cache/
+.go-mod-cache/
+familychat.exe

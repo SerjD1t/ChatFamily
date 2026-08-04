@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#315a4c"><link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/style.css"><title>Семейный чат</title>
+</head>
+<body>
+  <main>
+    <section id="login" class="card">
+      <h1>Семейный чат</h1><p>Войдите в свой семейный круг.</p>
+      <label>Эл. почта<input id="email" type="email" autocomplete="email" required></label>
+      <label>Пароль<input id="password" type="password" autocomplete="current-password" required></label>
+      <button id="loginButton">Войти</button><p id="error" role="alert"></p>
+    </section>
+    <section id="app" hidden>
+      <header><div><small>Ваш семейный круг</small><h1>Чат</h1></div><button id="logout" class="secondary">Выйти</button></header>
+      <div class="layout"><aside><h2>Диалоги</h2><nav id="conversations" aria-label="Список диалогов"></nav><button id="newGroup" class="secondary">Новая группа</button></aside>
+      <section class="chat"><h2 id="chatTitle">Выберите чат</h2><div id="messages" aria-live="polite"></div><form id="composer"><input id="body" maxlength="4000" placeholder="Напишите сообщение" aria-label="Текст сообщения"><button>Отправить</button></form></section></div>
+    </section>
+  </main>
+  <dialog id="groupDialog"><form method="dialog"><h2>Новая группа</h2><label>Название<input id="groupTitle" maxlength="120" required></label><p class="actions"><button value="cancel" class="secondary">Отмена</button><button id="createGroup" value="default">Создать</button></p></form></dialog>
+  <script src="/app.js"></script>
+</body>
+</html>

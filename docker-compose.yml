@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: familychat
+      POSTGRES_USER: familychat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-before-deployment}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U familychat -d familychat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://familychat:${POSTGRES_PASSWORD:-change-me-before-deployment}@postgres:5432/familychat?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
