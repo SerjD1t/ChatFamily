@@ -42,6 +42,22 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	}
 	return users, rows.Err()
 }
+func (p *Postgres) Contacts(actor chat.User) ([]chat.User, error) {
+	rows, err := p.Pool.Query(context.Background(), `SELECT id,display_name FROM users WHERE id<>$1 ORDER BY display_name,id`, actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	contacts := []chat.User{}
+	for rows.Next() {
+		var contact chat.User
+		if err := rows.Scan(&contact.ID, &contact.Name); err != nil {
+			return nil, err
+		}
+		contacts = append(contacts, contact)
+	}
+	return contacts, rows.Err()
+}
 
 func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted []chat.Permission) (chat.User, error) {
 	if !actor.Permissions[chat.ManageUsers] || strings.TrimSpace(userID) == "" {
@@ -61,7 +77,7 @@ func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted
 	return user, nil
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(c.title,''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)) FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 GROUP BY c.id,c.kind,c.title,m.last_read_at ORDER BY c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),'Личный диалог'),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)) FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 GROUP BY c.id,c.kind,c.title,m.last_read_at ORDER BY c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -213,7 +229,7 @@ func (p *Postgres) DirectConversation(a chat.User, other string) (chat.Conversat
 	e := p.Pool.QueryRow(context.Background(), `SELECT id FROM conversations WHERE direct_key=$1`, key).Scan(&conversationID)
 	if e != nil {
 		conversationID = id()
-		if _, e = p.Pool.Exec(context.Background(), `INSERT INTO conversations(id,kind,direct_key,created_by) VALUES($1,'direct',$2,$3)`, id, key, a.ID); e != nil {
+		if _, e = p.Pool.Exec(context.Background(), `INSERT INTO conversations(id,kind,direct_key,created_by) VALUES($1,'direct',$2,$3)`, conversationID, key, a.ID); e != nil {
 			return chat.Conversation{}, e
 		}
 		for _, u := range []string{a.ID, other} {

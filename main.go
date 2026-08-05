@@ -79,6 +79,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/push/subscriptions", a.auth(a.savePushSubscription))
 	mux.HandleFunc("DELETE /api/v1/push/subscriptions", a.auth(a.deletePushSubscription))
 	mux.HandleFunc("GET /api/v1/users", a.auth(a.users))
+	mux.HandleFunc("GET /api/v1/contacts", a.auth(a.contacts))
 	mux.HandleFunc("POST /api/v1/users", a.auth(a.createUser))
 	mux.HandleFunc("PATCH /api/v1/users/{userID}/permissions", a.auth(a.updateUserPermissions))
 	mux.HandleFunc("POST /api/v1/invitations", a.auth(a.createInvitation))
@@ -307,6 +308,18 @@ func (a *app) users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, http.StatusOK, users)
+}
+func (a *app) contacts(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Список участников требует PostgreSQL"})
+		return
+	}
+	contacts, err := a.db.Contacts(a.user(id(r)))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusOK, contacts)
 }
 func (a *app) updateUserPermissions(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
