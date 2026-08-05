@@ -21,6 +21,7 @@ import (
 	"familychat/internal/chat"
 	"familychat/internal/config"
 	"familychat/internal/store"
+	"github.com/SherClockHolmes/webpush-go"
 )
 
 type app struct {
@@ -73,8 +74,12 @@ func main() {
 	mux.HandleFunc("POST /api/v1/attachments", a.auth(a.uploadAttachment))
 	mux.HandleFunc("GET /api/v1/attachments/{id}", a.auth(a.downloadAttachment))
 	mux.HandleFunc("GET /api/v1/auth/me", a.auth(a.me))
+	mux.HandleFunc("GET /api/v1/push/public-key", a.auth(a.pushPublicKey))
+	mux.HandleFunc("POST /api/v1/push/subscriptions", a.auth(a.savePushSubscription))
+	mux.HandleFunc("DELETE /api/v1/push/subscriptions", a.auth(a.deletePushSubscription))
 	mux.HandleFunc("GET /api/v1/users", a.auth(a.users))
 	mux.HandleFunc("POST /api/v1/users", a.auth(a.createUser))
+	mux.HandleFunc("PATCH /api/v1/users/{userID}/permissions", a.auth(a.updateUserPermissions))
 	mux.HandleFunc("POST /api/v1/invitations", a.auth(a.createInvitation))
 	mux.HandleFunc("POST /api/v1/users/{userID}/direct-conversation", a.auth(a.directConversation))
 	mux.HandleFunc("GET /api/v1/conversations", a.auth(a.conversations))
@@ -259,6 +264,24 @@ func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 func (a *app) user(id string) chat.User                  { u, _ := a.chat.User(id); return u }
 func id(r *http.Request) string                          { return r.Context().Value(sessionKey{}).(string) }
 func (a *app) me(w http.ResponseWriter, r *http.Request) { write(w, 200, a.user(id(r))) }
+func (a *app) pushPublicKey(w http.ResponseWriter, r *http.Request) {
+	if a.cfg.VAPIDPublicKey == "" { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления не настроены"}); return }
+	write(w, http.StatusOK, map[string]string{"publicKey": a.cfg.VAPIDPublicKey})
+}
+func (a *app) savePushSubscription(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"}); return }
+	var subscription webpush.Subscription
+	if !decode(w, r, &subscription) { return }
+	if err := a.db.SavePushSubscription(a.user(id(r)), subscription); err != nil { domainError(w, err); return }
+	w.WriteHeader(http.StatusNoContent)
+}
+func (a *app) deletePushSubscription(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"}); return }
+	var in struct{ Endpoint string `json:"endpoint"` }
+	if !decode(w, r, &in) { return }
+	if err := a.db.DeletePushSubscription(a.user(id(r)), in.Endpoint); err != nil { domainError(w, err); return }
+	w.WriteHeader(http.StatusNoContent)
+}
 func (a *app) users(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
 		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Управление пользователями требует PostgreSQL"})
@@ -270,6 +293,24 @@ func (a *app) users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, http.StatusOK, users)
+}
+func (a *app) updateUserPermissions(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Управление пользователями требует PostgreSQL"})
+		return
+	}
+	var in struct {
+		Permissions []chat.Permission `json:"permissions"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	user, err := a.db.UpdateUserPermissions(a.user(id(r)), r.PathValue("userID"), in.Permissions)
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusOK, user)
 }
 func (a *app) conversations(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, a.chat.Conversations(id(r)))
@@ -312,6 +353,7 @@ func (a *app) createMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, 201, m)
 	a.hub.publish()
+	go a.notifyMessage(m)
 }
 func (a *app) editMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {

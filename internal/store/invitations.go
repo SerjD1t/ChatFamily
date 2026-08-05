@@ -60,6 +60,9 @@ func (p *Postgres) AcceptInvitation(token, name, password string) (chat.User, er
 	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,password_hash,permissions) VALUES($1,$2,$3,$4,$5)`, u.ID, u.Email, u.Name, string(passwordHash), permissions); err != nil {
 		return chat.User{}, err
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO conversation_members(conversation_id,user_id) VALUES('family',$1) ON CONFLICT DO NOTHING`, u.ID); err != nil {
+		return chat.User{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return chat.User{}, err
 	}

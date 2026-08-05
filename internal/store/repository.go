@@ -42,6 +42,24 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	}
 	return users, rows.Err()
 }
+
+func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted []chat.Permission) (chat.User, error) {
+	if !actor.Permissions[chat.ManageUsers] || strings.TrimSpace(userID) == "" {
+		return chat.User{}, chat.ErrForbidden
+	}
+	permissions := make([]string, 0, len(granted))
+	for _, permission := range granted {
+		permissions = append(permissions, string(permission))
+	}
+	var user chat.User
+	var stored []string
+	err := p.Pool.QueryRow(context.Background(), `UPDATE users SET permissions=$1 WHERE id=$2 RETURNING id,email,display_name,permissions`, permissions, userID).Scan(&user.ID, &user.Email, &user.Name, &stored)
+	if err != nil {
+		return chat.User{}, chat.ErrNotFound
+	}
+	user.Permissions = permissionMap(stored)
+	return user, nil
+}
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
 	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(c.title,''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)) FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 GROUP BY c.id,c.kind,c.title,m.last_read_at ORDER BY c.title,c.id`, userID)
 	if err != nil {

@@ -17,6 +17,9 @@ type Config struct {
 	MaxUploadBytes  int64
 	UploadDirectory string
 	DatabaseURL     string
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
 }
 
 func Load() (Config, error) {
@@ -28,7 +31,7 @@ func Load() (Config, error) {
 	if err != nil || max < 1 {
 		return Config{}, fmt.Errorf("MAX_UPLOAD_BYTES must be a positive integer")
 	}
-	cfg := Config{Addr: value("APP_ADDR", ":8080"), SessionSecret: os.Getenv("SESSION_SECRET"), AdminEmail: os.Getenv("BOOTSTRAP_ADMIN_EMAIL"), AdminPassword: os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"), Retention: time.Duration(days) * 24 * time.Hour, MaxUploadBytes: max, UploadDirectory: value("UPLOAD_DIR", "./uploads"), DatabaseURL: os.Getenv("DATABASE_URL")}
+	cfg := Config{Addr: value("APP_ADDR", ":8080"), SessionSecret: os.Getenv("SESSION_SECRET"), AdminEmail: os.Getenv("BOOTSTRAP_ADMIN_EMAIL"), AdminPassword: os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"), Retention: time.Duration(days) * 24 * time.Hour, MaxUploadBytes: max, UploadDirectory: value("UPLOAD_DIR", "./uploads"), DatabaseURL: os.Getenv("DATABASE_URL"), VAPIDPublicKey: os.Getenv("VAPID_PUBLIC_KEY"), VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"), VAPIDSubject: value("VAPID_SUBJECT", "mailto:admin@localhost")}
 	if len(cfg.SessionSecret) < 32 {
 		return Config{}, fmt.Errorf("SESSION_SECRET must contain at least 32 characters")
 	}
