@@ -10,5 +10,6 @@ RUN adduser -D -H app
 USER app
 WORKDIR /app
 COPY --from=build /familychat /usr/local/bin/familychat
+COPY --from=build /src/web /app/web
 EXPOSE 8080
 ENTRYPOINT ["familychat"]
