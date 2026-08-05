@@ -68,6 +68,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.HandleFunc("POST /login", a.loginForm)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/events", a.auth(a.events))
 	mux.HandleFunc("POST /api/v1/invitations/accept", a.acceptInvitation)
@@ -128,22 +129,29 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	userID := "admin"
-	validEmail := subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(in.Email))), []byte(strings.ToLower(a.cfg.AdminEmail))) == 1
-	validPassword := subtle.ConstantTimeCompare([]byte(in.Password), []byte(a.cfg.AdminPassword)) == 1
-	if a.db != nil {
-		if user, ok := a.db.Authenticate(in.Email, in.Password); ok {
-			userID = user.ID
-			validEmail = true
-			validPassword = true
-		}
-	}
-	if !validEmail || !validPassword {
+	userID, ok := a.authenticate(in.Email, in.Password)
+	if !ok {
 		write(w, http.StatusUnauthorized, map[string]string{"error": "Неверный адрес или пароль"})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "family_session", Value: a.sign(userID, time.Now().Add(14*24*time.Hour)), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil, MaxAge: 14 * 24 * 60 * 60})
+	a.setSession(w, r, userID)
 	write(w, http.StatusOK, a.user(userID))
+}
+func (a *app) loginForm(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil { http.Redirect(w, r, "/?login=error", http.StatusSeeOther); return }
+	userID, ok := a.authenticate(r.FormValue("email"), r.FormValue("password"))
+	if !ok { http.Redirect(w, r, "/?login=error", http.StatusSeeOther); return }
+	a.setSession(w, r, userID)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+func (a *app) authenticate(email, password string) (string, bool) {
+	if a.db != nil { if user, ok := a.db.Authenticate(email, password); ok { return user.ID, true } }
+	validEmail := subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(email))), []byte(strings.ToLower(a.cfg.AdminEmail))) == 1
+	validPassword := subtle.ConstantTimeCompare([]byte(password), []byte(a.cfg.AdminPassword)) == 1
+	return "admin", validEmail && validPassword
+}
+func (a *app) setSession(w http.ResponseWriter, r *http.Request, userID string) {
+	http.SetCookie(w, &http.Cookie{Name: "family_session", Value: a.sign(userID, time.Now().Add(14*24*time.Hour)), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https", MaxAge: 14 * 24 * 60 * 60})
 }
 func (a *app) logout(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "family_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})

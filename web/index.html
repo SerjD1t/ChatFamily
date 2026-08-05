@@ -9,9 +9,7 @@
   <main>
     <section id="login" class="card">
       <h1>Семейный чат</h1><p>Войдите в свой семейный круг.</p>
-      <label>Эл. почта<input id="email" type="email" autocomplete="email" required></label>
-      <label>Пароль<input id="password" type="password" autocomplete="current-password" required></label>
-      <button id="loginButton">Войти</button><p><button id="openAcceptInvite" type="button" class="secondary">Есть одноразовый код?</button></p><p id="error" role="alert"></p>
+      <form id="loginForm" method="post" action="/login"><label>Эл. почта<input id="email" name="email" type="email" autocomplete="email" required></label><label>Пароль<input id="password" name="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form><p><button id="openAcceptInvite" type="button" class="secondary">Есть одноразовый код?</button></p><p id="error" role="alert"></p>
     </section>
     <section id="app" hidden>
       <header><div><small>Ваш семейный круг</small><h1>Чат</h1></div><div class="headerActions"><button id="pushSettings" class="secondary" hidden>Уведомления</button><button id="administration" class="secondary" hidden>Администрирование</button><button id="logout" class="secondary">Выйти</button></div></header>
