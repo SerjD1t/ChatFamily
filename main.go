@@ -73,6 +73,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/attachments", a.auth(a.uploadAttachment))
 	mux.HandleFunc("GET /api/v1/attachments/{id}", a.auth(a.downloadAttachment))
 	mux.HandleFunc("GET /api/v1/auth/me", a.auth(a.me))
+	mux.HandleFunc("GET /api/v1/users", a.auth(a.users))
 	mux.HandleFunc("POST /api/v1/users", a.auth(a.createUser))
 	mux.HandleFunc("POST /api/v1/invitations", a.auth(a.createInvitation))
 	mux.HandleFunc("POST /api/v1/users/{userID}/direct-conversation", a.auth(a.directConversation))
@@ -254,6 +255,18 @@ func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 func (a *app) user(id string) chat.User                  { u, _ := a.chat.User(id); return u }
 func id(r *http.Request) string                          { return r.Context().Value(sessionKey{}).(string) }
 func (a *app) me(w http.ResponseWriter, r *http.Request) { write(w, 200, a.user(id(r))) }
+func (a *app) users(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Управление пользователями требует PostgreSQL"})
+		return
+	}
+	users, err := a.db.Users(a.user(id(r)))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusOK, users)
+}
 func (a *app) conversations(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, a.chat.Conversations(id(r)))
 }

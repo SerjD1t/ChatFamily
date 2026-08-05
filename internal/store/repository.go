@@ -20,6 +20,28 @@ func (p *Postgres) User(id string) (chat.User, bool) {
 	u.Permissions = permissionMap(permissions)
 	return u, true
 }
+
+func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
+	if !actor.Permissions[chat.ManageUsers] {
+		return nil, chat.ErrForbidden
+	}
+	rows, err := p.Pool.Query(context.Background(), `SELECT id, email, display_name, permissions FROM users ORDER BY display_name, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []chat.User{}
+	for rows.Next() {
+		var user chat.User
+		var permissions []string
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &permissions); err != nil {
+			return nil, err
+		}
+		user.Permissions = permissionMap(permissions)
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
 	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(c.title,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id WHERE m.user_id=$1 ORDER BY c.title,c.id`, userID)
 	if err != nil {
