@@ -146,7 +146,7 @@ async function openConversation(id) {
   const c = conversations.find((x) => x.id === id),
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
   $("#chatTitle").textContent = c?.title || "Диалог";
-  $("#manageMembers").hidden = c?.kind !== "group";
+  $("#manageMembers").hidden = c?.kind !== "group"; $("#deleteGroup").hidden = c?.kind !== "group";
   $("#toggleFavorite").hidden = c?.kind !== "group";
   $("#toggleFavorite").textContent = isFavorite ? "★" : "☆";
   $("#toggleFavorite").title = isFavorite
@@ -195,6 +195,7 @@ async function uploadAttachment(file) {
 }
 async function startApp() {
   currentUser = await request("/auth/me");
+  $("#currentUserName").textContent = currentUser.Name || "Пользователь";
   $("#login").hidden = true;
   $("#app").hidden = false;
   if (currentUser.Permissions?.manage_users)
@@ -341,7 +342,7 @@ $("#logout").onclick = async () => {
   await request("/auth/logout", { method: "POST" });
   location.reload();
 };
-$("#manageMembers").onclick = openMembers;
+$("#manageMembers").onclick = openMembers; $("#deleteGroup").onclick = async()=>{if(!active||!confirm("Удалить группу? Сообщения исчезнут из чата, файлы вложений останутся на сервере."))return;try{await request(`/conversations/${active}`,{method:"DELETE"});active=null;await loadConversations()}catch(e){alert(e.message)}};
 $("#addMember").onclick = async (e) => {
   e.preventDefault();
   const userId = $("#memberSelect").value;

@@ -25,10 +25,10 @@ import (
 )
 
 type app struct {
-	cfg  config.Config
-	chat chat.Backend
-	db   *store.Postgres
-	hub  *hub
+	cfg     config.Config
+	chat    chat.Backend
+	db      *store.Postgres
+	hub     *hub
 	limiter *rateLimiter
 }
 
@@ -104,14 +104,24 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	write(w, http.StatusOK, a.user(userID))
 }
 func (a *app) loginForm(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil { http.Redirect(w, r, "/?login=error", http.StatusSeeOther); return }
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/?login=error", http.StatusSeeOther)
+		return
+	}
 	userID, ok := a.authenticate(r.FormValue("email"), r.FormValue("password"))
-	if !ok { http.Redirect(w, r, "/?login=error", http.StatusSeeOther); return }
+	if !ok {
+		http.Redirect(w, r, "/?login=error", http.StatusSeeOther)
+		return
+	}
 	a.setSession(w, r, userID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 func (a *app) authenticate(email, password string) (string, bool) {
-	if a.db != nil { if user, ok := a.db.Authenticate(email, password); ok { return user.ID, true } }
+	if a.db != nil {
+		if user, ok := a.db.Authenticate(email, password); ok {
+			return user.ID, true
+		}
+	}
 	validEmail := subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(email))), []byte(strings.ToLower(a.cfg.AdminEmail))) == 1
 	validPassword := subtle.ConstantTimeCompare([]byte(password), []byte(a.cfg.AdminPassword)) == 1
 	return "admin", validEmail && validPassword
@@ -245,21 +255,42 @@ func (a *app) user(id string) chat.User                  { u, _ := a.chat.User(i
 func id(r *http.Request) string                          { return r.Context().Value(sessionKey{}).(string) }
 func (a *app) me(w http.ResponseWriter, r *http.Request) { write(w, 200, a.user(id(r))) }
 func (a *app) pushPublicKey(w http.ResponseWriter, r *http.Request) {
-	if a.cfg.VAPIDPublicKey == "" { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления не настроены"}); return }
+	if a.cfg.VAPIDPublicKey == "" {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления не настроены"})
+		return
+	}
 	write(w, http.StatusOK, map[string]string{"publicKey": a.cfg.VAPIDPublicKey})
 }
 func (a *app) savePushSubscription(w http.ResponseWriter, r *http.Request) {
-	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"}); return }
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"})
+		return
+	}
 	var subscription webpush.Subscription
-	if !decode(w, r, &subscription) { return }
-	if err := a.db.SavePushSubscription(a.user(id(r)), subscription); err != nil { domainError(w, err); return }
+	if !decode(w, r, &subscription) {
+		return
+	}
+	if err := a.db.SavePushSubscription(a.user(id(r)), subscription); err != nil {
+		domainError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 func (a *app) deletePushSubscription(w http.ResponseWriter, r *http.Request) {
-	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"}); return }
-	var in struct{ Endpoint string `json:"endpoint"` }
-	if !decode(w, r, &in) { return }
-	if err := a.db.DeletePushSubscription(a.user(id(r)), in.Endpoint); err != nil { domainError(w, err); return }
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Уведомления требуют PostgreSQL"})
+		return
+	}
+	var in struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.db.DeletePushSubscription(a.user(id(r)), in.Endpoint); err != nil {
+		domainError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 func (a *app) users(w http.ResponseWriter, r *http.Request) {
@@ -308,16 +339,32 @@ func (a *app) conversations(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, a.chat.Conversations(id(r)))
 }
 func (a *app) favorites(w http.ResponseWriter, r *http.Request) {
-	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"}); return }
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"})
+		return
+	}
 	ids, err := a.db.FavoriteIDs(a.user(id(r)))
-	if err != nil { domainError(w, err); return }
+	if err != nil {
+		domainError(w, err)
+		return
+	}
 	write(w, http.StatusOK, ids)
 }
 func (a *app) setFavorite(w http.ResponseWriter, r *http.Request) {
-	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"}); return }
-	var in struct{ Favorite bool `json:"favorite"` }
-	if !decode(w, r, &in) { return }
-	if err := a.db.SetFavorite(a.user(id(r)), r.PathValue("id"), in.Favorite); err != nil { domainError(w, err); return }
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"})
+		return
+	}
+	var in struct {
+		Favorite bool `json:"favorite"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.db.SetFavorite(a.user(id(r)), r.PathValue("id"), in.Favorite); err != nil {
+		domainError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 func (a *app) createGroup(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +446,9 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 		domainError(w, err)
 		return
 	}
-	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil { go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji) }
+	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil {
+		go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji)
+	}
 	w.WriteHeader(http.StatusNoContent)
 	a.hub.publish()
 }
@@ -528,6 +577,15 @@ func (a *app) removeMember(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+func (a *app) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	if err := a.chat.DeleteGroup(a.user(id(r)), r.PathValue("id")); err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.hub.publish()
+}
+
 func (a *app) memberCandidates(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
 		write(w, 503, map[string]string{"error": "Управление участниками требует PostgreSQL"})

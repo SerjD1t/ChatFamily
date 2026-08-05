@@ -58,3 +58,24 @@ func (s *Service) AddMember(actor User, conversationID, memberID string) error {
 	c.Members[memberID] = true
 	return nil
 }
+func (s *Service) DeleteGroup(actor User, conversationID string) error {
+	if !actor.Permissions[ManageGroupSettings] {
+		return ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.conversations[conversationID]
+	if c == nil {
+		return ErrNotFound
+	}
+	if c.Kind != Group || !c.Members[actor.ID] {
+		return ErrForbidden
+	}
+	delete(s.conversations, conversationID)
+	for id, message := range s.messages {
+		if message.ConversationID == conversationID {
+			delete(s.messages, id)
+		}
+	}
+	return nil
+}

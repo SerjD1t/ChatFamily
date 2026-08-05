@@ -70,4 +70,5 @@ type Backend interface {
 	AddUser(User, User) error
 	DirectConversation(User, string) (Conversation, error)
 	AddMember(User, string, string) error
+	DeleteGroup(User, string) error
 }
