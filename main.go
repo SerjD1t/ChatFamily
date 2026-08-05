@@ -399,6 +399,7 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 		domainError(w, err)
 		return
 	}
+	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil { go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji) }
 	w.WriteHeader(http.StatusNoContent)
 	a.hub.publish()
 }

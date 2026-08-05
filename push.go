@@ -26,3 +26,4 @@ func (a *app) notifyMessage(message chat.Message) {
 		if err != nil { slog.Warn("push notification failed", "error", err) }
 	}
 }
+func (a *app) notifyReaction(conversationID, author, emoji string) { if a.db==nil||a.cfg.VAPIDPublicKey==""||a.cfg.VAPIDPrivateKey=="" { return }; subscriptions,err:=a.db.PushSubscriptions(conversationID,"");if err!=nil{return};payload,_:=json.Marshal(map[string]string{"title":"Новая реакция","body":author+" отреагировал(а): "+emoji,"conversationID":conversationID});for _,subscription:=range subscriptions{response,err:=webpush.SendNotification(payload,&subscription,&webpush.Options{Subscriber:a.cfg.VAPIDSubject,VAPIDPublicKey:a.cfg.VAPIDPublicKey,VAPIDPrivateKey:a.cfg.VAPIDPrivateKey,TTL:300});if response!=nil{response.Body.Close()};if err!=nil{slog.Warn("reaction push notification failed","error",err)}} }

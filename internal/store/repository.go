@@ -419,6 +419,12 @@ func (p *Postgres) ToggleReaction(actor chat.User, mid, emoji string) error {
 	}
 	return tx.Commit(ctx)
 }
+func (p *Postgres) ReactionConversation(actor chat.User, messageID string) (string, error) {
+	var conversationID string
+	err := p.Pool.QueryRow(context.Background(), `SELECT m.conversation_id FROM messages m JOIN conversation_members cm ON cm.conversation_id=m.conversation_id WHERE m.id=$1 AND cm.user_id=$2`, messageID, actor.ID).Scan(&conversationID)
+	if err != nil { return "", chat.ErrForbidden }
+	return conversationID, nil
+}
 func (p *Postgres) AttachmentObject(userID, attachmentID string) (string, chat.Attachment, error) {
 	var key string
 	var a chat.Attachment
