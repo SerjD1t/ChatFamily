@@ -16,7 +16,7 @@ func testApp() *app {
 		chat.ManageUsers: true, chat.CreateGroups: true, chat.ManageGroupMembers: true,
 		chat.SendMessages: true, chat.EditOwnMessages: true, chat.DeleteOwnMessages: true,
 	}}
-	return &app{cfg: config.Config{SessionSecret: "01234567890123456789012345678901", AdminEmail: admin.Email}, chat: chat.New(admin)}
+	return &app{cfg: config.Config{SessionSecret: "01234567890123456789012345678901", AdminEmail: admin.Email}, chat: chat.New(admin), limiter: newRateLimiter(12, time.Minute)}
 }
 
 func authenticatedRequest(t *testing.T, a *app, method, path, body string) *http.Request {
@@ -57,4 +57,11 @@ func TestOnlyGroupAcceptsNewMembers(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
 	}
+}
+
+func TestRateLimiter(t *testing.T) {
+	limiter := newRateLimiter(2, time.Minute)
+	r := httptest.NewRequest(http.MethodPost, "/login", nil)
+	r.RemoteAddr = "203.0.113.10:12345"
+	if !limiter.allow(r) || !limiter.allow(r) || limiter.allow(r) { t.Fatal("rate limiter did not enforce the limit") }
 }

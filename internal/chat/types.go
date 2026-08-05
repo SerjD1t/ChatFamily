@@ -30,8 +30,9 @@ type Conversation struct {
 	ID          string           `json:"id"`
 	Kind        ConversationKind `json:"kind"`
 	Title       string           `json:"title"`
+	PeerUserID  string           `json:"peerUserId,omitempty"`
 	UnreadCount int64            `json:"unreadCount"`
-	Members     map[string]bool
+	Members     map[string]bool  `json:"-"`
 }
 type Attachment struct {
 	ID          string `json:"id"`

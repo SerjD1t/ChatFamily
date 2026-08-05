@@ -18,7 +18,10 @@ var migrationFiles embed.FS
 type Postgres struct{ Pool *pgxpool.Pool }
 
 func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil { return nil, fmt.Errorf("parse database config: %w", err) }
+	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = "10000"
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}

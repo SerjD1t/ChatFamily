@@ -29,6 +29,7 @@ type app struct {
 	chat chat.Backend
 	db   *store.Postgres
 	hub  *hub
+	limiter *rateLimiter
 }
 
 type sessionKey struct{}
@@ -64,46 +65,10 @@ func main() {
 	if cfg.DatabaseURL != "" {
 		backend = postgres
 	}
-	a := &app{cfg: cfg, chat: backend, db: postgres, hub: newHub()}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", a.health)
-	mux.HandleFunc("POST /api/v1/auth/login", a.login)
-	mux.HandleFunc("POST /login", a.loginForm)
-	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
-	mux.HandleFunc("GET /api/v1/events", a.auth(a.events))
-	mux.HandleFunc("POST /api/v1/invitations/accept", a.acceptInvitation)
-	mux.HandleFunc("POST /api/v1/attachments", a.auth(a.uploadAttachment))
-	mux.HandleFunc("GET /api/v1/attachments/{id}", a.auth(a.downloadAttachment))
-	mux.HandleFunc("GET /api/v1/auth/me", a.auth(a.me))
-	mux.HandleFunc("GET /api/v1/push/public-key", a.auth(a.pushPublicKey))
-	mux.HandleFunc("POST /api/v1/push/subscriptions", a.auth(a.savePushSubscription))
-	mux.HandleFunc("DELETE /api/v1/push/subscriptions", a.auth(a.deletePushSubscription))
-	mux.HandleFunc("GET /api/v1/users", a.auth(a.users))
-	mux.HandleFunc("GET /api/v1/contacts", a.auth(a.contacts))
-	mux.HandleFunc("POST /api/v1/users", a.auth(a.createUser))
-	mux.HandleFunc("PATCH /api/v1/users/{userID}/permissions", a.auth(a.updateUserPermissions))
-	mux.HandleFunc("POST /api/v1/invitations", a.auth(a.createInvitation))
-	mux.HandleFunc("POST /api/v1/users/{userID}/direct-conversation", a.auth(a.directConversation))
-	mux.HandleFunc("GET /api/v1/conversations", a.auth(a.conversations))
-	mux.HandleFunc("POST /api/v1/conversations", a.auth(a.createGroup))
-	mux.HandleFunc("POST /api/v1/conversations/{id}/members", a.auth(a.addMember))
-	mux.HandleFunc("GET /api/v1/conversations/{id}/members", a.auth(a.members))
-	mux.HandleFunc("DELETE /api/v1/conversations/{id}/members/{userID}", a.auth(a.removeMember))
-	mux.HandleFunc("GET /api/v1/conversations/{id}/member-candidates", a.auth(a.memberCandidates))
-	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", a.auth(a.messages))
-	mux.HandleFunc("POST /api/v1/conversations/{id}/messages", a.auth(a.createMessage))
-	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
-	mux.HandleFunc("DELETE /api/v1/messages/{id}", a.auth(a.deleteMessage))
-	mux.HandleFunc("POST /api/v1/messages/{id}/reactions", a.auth(a.toggleReaction))
-	static := http.FileServer(http.Dir("web"))
-	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/app.js" || r.URL.Path == "/sw.js" || r.URL.Path == "/" {
-			w.Header().Set("Cache-Control", "no-store")
-		}
-		static.ServeHTTP(w, r)
-	}))
+	a := &app{cfg: cfg, chat: backend, db: postgres, hub: newHub(), limiter: newRateLimiter(12, time.Minute)}
+	mux := a.routes()
 
-	server := &http.Server{Addr: cfg.Addr, Handler: headers(mux), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: cfg.Addr, Handler: headers(requestDeadline(mux)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("семейный чат запущен", "address", cfg.Addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("сервер остановлен", "error", err)
@@ -341,6 +306,19 @@ func (a *app) updateUserPermissions(w http.ResponseWriter, r *http.Request) {
 }
 func (a *app) conversations(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, a.chat.Conversations(id(r)))
+}
+func (a *app) favorites(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"}); return }
+	ids, err := a.db.FavoriteIDs(a.user(id(r)))
+	if err != nil { domainError(w, err); return }
+	write(w, http.StatusOK, ids)
+}
+func (a *app) setFavorite(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil { write(w, http.StatusServiceUnavailable, map[string]string{"error": "Избранное требует PostgreSQL"}); return }
+	var in struct{ Favorite bool `json:"favorite"` }
+	if !decode(w, r, &in) { return }
+	if err := a.db.SetFavorite(a.user(id(r)), r.PathValue("id"), in.Favorite); err != nil { domainError(w, err); return }
+	w.WriteHeader(http.StatusNoContent)
 }
 func (a *app) createGroup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
