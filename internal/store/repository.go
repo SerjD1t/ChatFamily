@@ -138,19 +138,23 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer rows.Close()
 	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
 		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); e != nil {
+			rows.Close()
 			return nil, e
 		}
-		m.Attachments = p.attachments(m.ID)
-		m.Reactions = p.reactions(m.ID, a.ID)
 		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		out[i].Attachments = p.attachments(out[i].ID)
+		out[i].Reactions = p.reactions(out[i].ID, a.ID)
 	}
 	if _, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_read_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID); err != nil {
 		return nil, err
