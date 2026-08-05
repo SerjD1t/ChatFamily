@@ -93,7 +93,13 @@ func main() {
 	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
 	mux.HandleFunc("DELETE /api/v1/messages/{id}", a.auth(a.deleteMessage))
 	mux.HandleFunc("POST /api/v1/messages/{id}/reactions", a.auth(a.toggleReaction))
-	mux.Handle("GET /", http.FileServer(http.Dir("web")))
+	static := http.FileServer(http.Dir("web"))
+	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app.js" || r.URL.Path == "/sw.js" || r.URL.Path == "/" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		static.ServeHTTP(w, r)
+	}))
 
 	server := &http.Server{Addr: cfg.Addr, Handler: headers(mux), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("семейный чат запущен", "address", cfg.Addr)
