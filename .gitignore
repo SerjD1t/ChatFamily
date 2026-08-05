@@ -5,3 +5,4 @@ uploads/
 .go-cache/
 .go-mod-cache/
 familychat.exe
+ssh/
