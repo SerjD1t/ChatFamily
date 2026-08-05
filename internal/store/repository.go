@@ -139,7 +139,7 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 		return nil, e
 	}
 	defer rows.Close()
-	var out []chat.Message
+	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
 		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); e != nil {
