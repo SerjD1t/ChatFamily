@@ -372,6 +372,24 @@ $("#createGroup").onclick = async (e) => {
   active = null;
   loadConversations();
 };
+$("#createInvite").onclick = async (e) => {
+  e.preventDefault();
+  const email = $("#inviteEmail").value.trim();
+  if (!email) return;
+  const permissions = [...document.querySelectorAll('[name="permission"]:checked')].map((input) => input.value);
+  try {
+    const invite = await request("/invitations", {
+      method: "POST",
+      body: JSON.stringify({ email, permissions }),
+    });
+    $("#inviteToken").textContent = `Одноразовый код: ${invite.token}`;
+    $("#inviteToken").hidden = false;
+    $("#inviteEmail").value = "";
+    $("#inviteError").textContent = "";
+  } catch (error) {
+    $("#inviteError").textContent = error.message;
+  }
+};
 $("#attach").onclick = () => {
   $("#attachmentFiles").click();
   $("#sendMenu").hidden = true;
