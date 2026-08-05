@@ -31,7 +31,6 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/conversations", a.auth(a.createGroup))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/members", a.auth(a.addMember))
 	mux.HandleFunc("DELETE /api/v1/conversations/{id}", a.auth(a.deleteGroup))
-	mux.HandleFunc("DELETE /api/v1/conversations/{id}", a.auth(a.deleteGroup))
 	mux.HandleFunc("GET /api/v1/conversations/{id}/members", a.auth(a.members))
 	mux.HandleFunc("DELETE /api/v1/conversations/{id}/members/{userID}", a.auth(a.removeMember))
 	mux.HandleFunc("GET /api/v1/conversations/{id}/member-candidates", a.auth(a.memberCandidates))
