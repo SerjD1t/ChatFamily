@@ -43,7 +43,7 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	return users, rows.Err()
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(c.title,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id WHERE m.user_id=$1 ORDER BY c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(c.title,''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)) FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 GROUP BY c.id,c.kind,c.title,m.last_read_at ORDER BY c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -51,7 +51,7 @@ func (p *Postgres) Conversations(userID string) []chat.Conversation {
 	var out []chat.Conversation
 	for rows.Next() {
 		var c chat.Conversation
-		if rows.Scan(&c.ID, &c.Kind, &c.Title) == nil {
+		if rows.Scan(&c.ID, &c.Kind, &c.Title, &c.UnreadCount) == nil {
 			c.Members = p.members(c.ID)
 			out = append(out, c)
 		}
@@ -128,7 +128,14 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 			return nil, e
 		}
 		m.Attachments = p.attachments(m.ID)
+		m.Reactions = p.reactions(m.ID, a.ID)
 		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_read_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -296,6 +303,47 @@ func (p *Postgres) attachments(mid string) []chat.Attachment {
 		}
 	}
 	return out
+}
+func (p *Postgres) reactions(mid, userID string) []chat.Reaction {
+	rows, e := p.Pool.Query(context.Background(), `SELECT emoji,COUNT(*),BOOL_OR(user_id=$2) FROM message_reactions WHERE message_id=$1 GROUP BY emoji ORDER BY emoji`, mid, userID)
+	if e != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []chat.Reaction
+	for rows.Next() {
+		var reaction chat.Reaction
+		if rows.Scan(&reaction.Emoji, &reaction.Count, &reaction.Reacted) == nil {
+			out = append(out, reaction)
+		}
+	}
+	return out
+}
+func (p *Postgres) ToggleReaction(actor chat.User, mid, emoji string) error {
+	emoji = strings.TrimSpace(emoji)
+	if emoji == "" || len([]rune(emoji)) > 8 {
+		return chat.ErrInvalid
+	}
+	ctx := context.Background()
+	tx, e := p.Pool.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	deleted, e := tx.Exec(ctx, `DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3`, mid, actor.ID, emoji)
+	if e != nil {
+		return e
+	}
+	if deleted.RowsAffected() == 0 {
+		inserted, e := tx.Exec(ctx, `INSERT INTO message_reactions(message_id,user_id,emoji) SELECT m.id,$2,$3 FROM messages m JOIN conversation_members cm ON cm.conversation_id=m.conversation_id WHERE m.id=$1 AND cm.user_id=$2`, mid, actor.ID, emoji)
+		if e != nil {
+			return e
+		}
+		if inserted.RowsAffected() == 0 {
+			return chat.ErrForbidden
+		}
+	}
+	return tx.Commit(ctx)
 }
 func (p *Postgres) AttachmentObject(userID, attachmentID string) (string, chat.Attachment, error) {
 	var key string

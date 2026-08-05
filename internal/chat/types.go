@@ -27,16 +27,22 @@ const (
 )
 
 type Conversation struct {
-	ID      string           `json:"id"`
-	Kind    ConversationKind `json:"kind"`
-	Title   string           `json:"title"`
-	Members map[string]bool
+	ID          string           `json:"id"`
+	Kind        ConversationKind `json:"kind"`
+	Title       string           `json:"title"`
+	UnreadCount int64            `json:"unreadCount"`
+	Members     map[string]bool
 }
 type Attachment struct {
 	ID          string `json:"id"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"contentType"`
 	Bytes       int64  `json:"bytes"`
+}
+type Reaction struct {
+	Emoji   string `json:"emoji"`
+	Count   int64  `json:"count"`
+	Reacted bool   `json:"reacted"`
 }
 type Message struct {
 	ID             string       `json:"id"`
@@ -45,6 +51,7 @@ type Message struct {
 	AuthorName     string       `json:"authorName"`
 	Body           string       `json:"body"`
 	Attachments    []Attachment `json:"attachments,omitempty"`
+	Reactions      []Reaction   `json:"reactions,omitempty"`
 	CreatedAt      time.Time    `json:"createdAt"`
 	EditedAt       *time.Time   `json:"editedAt,omitempty"`
 	DeletedAt      *time.Time   `json:"deletedAt,omitempty"`

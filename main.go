@@ -87,6 +87,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/conversations/{id}/messages", a.auth(a.createMessage))
 	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
 	mux.HandleFunc("DELETE /api/v1/messages/{id}", a.auth(a.deleteMessage))
+	mux.HandleFunc("POST /api/v1/messages/{id}/reactions", a.auth(a.toggleReaction))
 	mux.Handle("GET /", http.FileServer(http.Dir("web")))
 
 	server := &http.Server{Addr: cfg.Addr, Handler: headers(mux), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
@@ -334,6 +335,24 @@ func (a *app) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, m)
+	a.hub.publish()
+}
+func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Реакции требуют PostgreSQL"})
+		return
+	}
+	var in struct {
+		Emoji string `json:"emoji"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.db.ToggleReaction(a.user(id(r)), r.PathValue("id"), in.Emoji); err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 	a.hub.publish()
 }
 func domainError(w http.ResponseWriter, err error) {
