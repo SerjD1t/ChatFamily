@@ -36,7 +36,7 @@ func (p *Postgres) CreateInvitation(actor chat.User, email string, granted []cha
 
 func (p *Postgres) AcceptInvitation(token, name, password string) (chat.User, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || len(password) < 12 {
+	if name == "" || len(password) < 5 {
 		return chat.User{}, chat.ErrInvalid
 	}
 	hash := sha256.Sum256([]byte(token))
