@@ -132,7 +132,7 @@ async function startDirect(userID) {
       { method: "POST" },
     );
     await loadConversations();
-    openConversation(conversation.ID);
+    openConversation(conversation.id);
   } catch (e) {
     $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
