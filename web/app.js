@@ -382,12 +382,58 @@ $("#createInvite").onclick = async (e) => {
       method: "POST",
       body: JSON.stringify({ email, permissions }),
     });
-    $("#inviteToken").textContent = `Одноразовый код: ${invite.token}`;
+    $("#inviteTokenText").textContent = `Одноразовый код: ${invite.token}`;
     $("#inviteToken").hidden = false;
     $("#inviteEmail").value = "";
     $("#inviteError").textContent = "";
   } catch (error) {
     $("#inviteError").textContent = error.message;
+  }
+};
+$("#copyInviteToken").onclick = async () => {
+  const code = $("#inviteTokenText").textContent.replace("Одноразовый код: ", "");
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    $("#copyInviteToken").textContent = "Скопировано";
+    setTimeout(() => { $("#copyInviteToken").textContent = "Скопировать"; }, 1500);
+  } catch {
+    $("#inviteError").textContent = "Не удалось скопировать код. Скопируйте его вручную.";
+  }
+};
+$("#openAcceptInvite").onclick = () => {
+  $("#acceptInviteError").textContent = "";
+  $("#acceptInviteDialog").showModal();
+  $("#inviteCode").focus();
+};
+$("#closeAcceptInvite").onclick = () => $("#acceptInviteDialog").close();
+$("#acceptInvite").onsubmit = async (event) => {
+  event.preventDefault();
+  const token = $("#inviteCode").value.trim();
+  const name = $("#inviteName").value.trim();
+  const password = $("#invitePassword").value;
+  const passwordRepeat = $("#invitePasswordRepeat").value;
+  const error = $("#acceptInviteError");
+  if (password !== passwordRepeat) {
+    error.textContent = "Пароли не совпадают";
+    return;
+  }
+  if (password.length < 5) {
+    error.textContent = "Пароль должен содержать не менее 5 символов";
+    return;
+  }
+  try {
+    const user = await request("/invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token, name, password }),
+    });
+    $("#acceptInviteDialog").close();
+    $("#loginForm").reset();
+    $("#email").value = user.Email || "";
+    $("#error").textContent = "Аккаунт создан. Введите пароль для входа.";
+    $("#password").focus();
+  } catch (requestError) {
+    error.textContent = requestError.message;
   }
 };
 $("#attach").onclick = () => {
