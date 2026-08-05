@@ -80,6 +80,9 @@ func main() {
 	mux.HandleFunc("GET /api/v1/conversations", a.auth(a.conversations))
 	mux.HandleFunc("POST /api/v1/conversations", a.auth(a.createGroup))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/members", a.auth(a.addMember))
+	mux.HandleFunc("GET /api/v1/conversations/{id}/members", a.auth(a.members))
+	mux.HandleFunc("DELETE /api/v1/conversations/{id}/members/{userID}", a.auth(a.removeMember))
+	mux.HandleFunc("GET /api/v1/conversations/{id}/member-candidates", a.auth(a.memberCandidates))
 	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", a.auth(a.messages))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/messages", a.auth(a.createMessage))
 	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
@@ -433,4 +436,40 @@ func (a *app) addMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+func (a *app) members(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Управление участниками требует PostgreSQL"})
+		return
+	}
+	members, err := a.db.Members(a.user(id(r)), r.PathValue("id"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, 200, members)
+}
+func (a *app) removeMember(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Управление участниками требует PostgreSQL"})
+		return
+	}
+	err := a.db.RemoveMember(a.user(id(r)), r.PathValue("id"), r.PathValue("userID"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (a *app) memberCandidates(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Управление участниками требует PostgreSQL"})
+		return
+	}
+	users, err := a.db.MemberCandidates(a.user(id(r)), r.PathValue("id"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, 200, users)
 }

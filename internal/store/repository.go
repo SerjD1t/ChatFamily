@@ -197,8 +197,62 @@ func (p *Postgres) AddMember(a chat.User, cid, uid string) error {
 	if !a.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, a.ID) {
 		return chat.ErrForbidden
 	}
-	_, e := p.Pool.Exec(context.Background(), `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,id FROM users WHERE id=$2 ON CONFLICT DO NOTHING`, cid, uid)
-	return e
+	result, e := p.Pool.Exec(context.Background(), `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,id FROM users WHERE id=$2 ON CONFLICT DO NOTHING`, cid, uid)
+	if e != nil {
+		return e
+	}
+	if result.RowsAffected() == 0 {
+		if _, ok := p.User(uid); !ok {
+			return chat.ErrNotFound
+		}
+	}
+	return nil
+}
+
+func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
+	if !p.member(cid, actor.ID) {
+		return nil, chat.ErrForbidden
+	}
+	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions FROM users u JOIN conversation_members m ON m.user_id=u.id WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []chat.User{}
+	for rows.Next() {
+		var u chat.User
+		var permissions []string
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &permissions); err != nil {
+			return nil, err
+		}
+		u.Permissions = permissionMap(permissions)
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func (p *Postgres) RemoveMember(actor chat.User, cid, uid string) error {
+	if !actor.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, actor.ID) {
+		return chat.ErrForbidden
+	}
+	if uid == actor.ID {
+		return chat.ErrInvalid
+	}
+	result, err := p.Pool.Exec(context.Background(), `DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2`, cid, uid)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return chat.ErrNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) MemberCandidates(actor chat.User, cid string) ([]chat.User, error) {
+	if !actor.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, actor.ID) {
+		return nil, chat.ErrForbidden
+	}
+	return p.Users(chat.User{Permissions: map[chat.Permission]bool{chat.ManageUsers: true}})
 }
 
 func (p *Postgres) groupMember(cid, uid string) bool {
