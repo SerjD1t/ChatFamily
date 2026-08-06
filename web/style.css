@@ -5,4 +5,4 @@
 
 .messageStatus{font-weight:700;letter-spacing:-.18em;margin-left:.1rem}.messageStatus.sent,.messageStatus.delivered{color:#8a9692}.messageStatus.read{color:#168ac6}
 
-.messageAuthor{appearance:none;display:inline;min-height:0;padding:0;border:0;border-radius:0;background:transparent;text-align:left;font:inherit;font-size:.9rem;font-weight:700;line-height:1.2;color:hsl(var(--author-hue) 52% 35%);cursor:pointer}.messageAuthor:hover{text-decoration:underline}.messageAuthor:focus-visible{outline:2px solid #7aa893;outline-offset:2px}.loadOlder{display:block;margin:0 auto .75rem}.profileCard{min-width:min(22rem,80vw)}.profileCard h2{margin-top:0}
+.messageAuthor{appearance:none;display:inline;min-height:0;padding:0;border:0;border-radius:0;background:transparent!important;box-shadow:none!important;text-align:left;font:inherit;font-size:.9rem;font-weight:700;line-height:1.2;color:hsl(var(--author-hue) 52% 35%)!important;cursor:pointer}.messageAuthor:hover{text-decoration:underline}.messageAuthor:focus-visible{outline:2px solid #7aa893;outline-offset:2px}.loadOlder{display:block;margin:0 auto .75rem}.profileCard{min-width:min(22rem,80vw)}.profileCard h2{margin-top:0}
