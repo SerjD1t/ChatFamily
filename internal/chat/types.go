@@ -16,6 +16,7 @@ const (
 
 type User struct {
 	ID, Email, Name string
+	AvatarURL       string `json:"avatarUrl,omitempty"`
 	Permissions     map[Permission]bool
 }
 type ConversationKind string
@@ -46,24 +47,24 @@ type Reaction struct {
 	Reacted bool   `json:"reacted"`
 }
 type Message struct {
-	ID             string       `json:"id"`
-	ConversationID string       `json:"conversationId"`
-	AuthorID       string       `json:"authorId"`
-	AuthorName     string       `json:"authorName"`
-	Body           string       `json:"body"`
-	Attachments    []Attachment `json:"attachments,omitempty"`
-	Reactions      []Reaction   `json:"reactions,omitempty"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	EditedAt       *time.Time   `json:"editedAt,omitempty"`
-	DeletedAt      *time.Time   `json:"deletedAt,omitempty"`
-	Status         string       `json:"status,omitempty"`
+	ID              string       `json:"id"`
+	ConversationID  string       `json:"conversationId"`
+	AuthorID        string       `json:"authorId"`
+	AuthorName      string       `json:"authorName"`
+	AuthorAvatarURL string       `json:"authorAvatarUrl,omitempty"`
+	Body            string       `json:"body"`
+	Attachments     []Attachment `json:"attachments,omitempty"`
+	Reactions       []Reaction   `json:"reactions,omitempty"`
+	CreatedAt       time.Time    `json:"createdAt"`
+	EditedAt        *time.Time   `json:"editedAt,omitempty"`
+	DeletedAt       *time.Time   `json:"deletedAt,omitempty"`
+	Status          string       `json:"status,omitempty"`
 }
 type MessagePage struct {
 	Messages   []Message `json:"messages"`
 	NextBefore string    `json:"nextBefore,omitempty"`
 }
 
-// Backend is the storage contract used by the HTTP application.
 type Backend interface {
 	User(string) (User, bool)
 	Conversations(string) []Conversation

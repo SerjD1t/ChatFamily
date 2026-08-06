@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /familychat .
 
 FROM alpine:3.21
-RUN adduser -D -H app
+RUN adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
 USER app
 WORKDIR /app
 COPY --from=build /familychat /usr/local/bin/familychat

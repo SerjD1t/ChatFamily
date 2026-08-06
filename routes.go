@@ -20,6 +20,8 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/push/subscriptions", a.auth(a.savePushSubscription))
 	mux.HandleFunc("DELETE /api/v1/push/subscriptions", a.auth(a.deletePushSubscription))
 	mux.HandleFunc("GET /api/v1/users", a.auth(a.users))
+	mux.HandleFunc("POST /api/v1/auth/avatar", a.limited(a.auth(a.uploadAvatar)))
+	mux.HandleFunc("GET /api/v1/users/{userID}/avatar", a.auth(a.avatar))
 	mux.HandleFunc("GET /api/v1/contacts", a.auth(a.contacts))
 	mux.HandleFunc("POST /api/v1/users", a.auth(a.createUser))
 	mux.HandleFunc("PATCH /api/v1/users/{userID}/permissions", a.auth(a.updateUserPermissions))

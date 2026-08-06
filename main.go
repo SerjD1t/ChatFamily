@@ -178,6 +178,66 @@ func (a *app) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, http.StatusCreated, user)
 }
+
+func (a *app) uploadAvatar(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Аватары требуют PostgreSQL"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	defer r.Body.Close()
+	data, err := io.ReadAll(r.Body)
+	if err != nil || len(data) == 0 {
+		write(w, http.StatusBadRequest, map[string]string{"error": "Изображение должно быть не больше 2 МБ"})
+		return
+	}
+	contentType := http.DetectContentType(data)
+	if contentType != "image/jpeg" && contentType != "image/png" && contentType != "image/webp" {
+		write(w, http.StatusBadRequest, map[string]string{"error": "Поддерживаются только JPEG, PNG и WebP"})
+		return
+	}
+	if err := os.MkdirAll(a.cfg.UploadDirectory, 0700); err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": "Не удалось подготовить хранилище"})
+		return
+	}
+	b := make([]byte, 16)
+	if _, err := cryptorand.Read(b); err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": "Не удалось сохранить изображение"})
+		return
+	}
+	key := "avatar-" + hex.EncodeToString(b)
+	if err := os.WriteFile(filepath.Join(a.cfg.UploadDirectory, key), data, 0600); err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": "Не удалось сохранить изображение"})
+		return
+	}
+	if err := a.db.SetAvatar(id(r), key, contentType); err != nil {
+		_ = os.Remove(filepath.Join(a.cfg.UploadDirectory, key))
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusCreated, map[string]string{"avatarUrl": "/api/v1/users/" + id(r) + "/avatar"})
+	a.hub.publish(realtimeEvent{Type: "user.updated"})
+}
+func (a *app) avatar(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Аватары требуют PostgreSQL"})
+		return
+	}
+	key, contentType, err := a.db.AvatarObject(id(r), r.PathValue("userID"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(a.cfg.UploadDirectory, filepath.Base(key)))
+	if err != nil {
+		write(w, http.StatusNotFound, map[string]string{"error": "Изображение не найдено"})
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
 func (a *app) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(strings.TrimSpace(r.Header.Get("X-Filename")))
 	if filename == "." || filename == "" || filename == string(filepath.Separator) {

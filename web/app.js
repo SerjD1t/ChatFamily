@@ -73,16 +73,19 @@ function messageStatus(status) {
 function reactionAddButton(message) {
   return `<button class="reaction reactionAdd" data-message="${message.id}" data-add-reaction="true" title="Добавить реакцию" aria-label="Добавить реакцию">＋</button><button class="reaction reactionReply" data-reply-id="${message.id}" title="Ответить" aria-label="Ответить">↩</button>`;
 }
-function openUserCard(name) {
+function openUserCard(userID, name, avatarURL) {
   $("#profileName").textContent = name || "Пользователь";
-  $("#profileDetails").textContent = name === currentUser?.Name ? "Это ваш профиль" : "Участник семейного чата";
+  $("#profileDetails").textContent = userID === currentUser?.ID ? "Это ваш профиль" : "Участник семейного чата";
+  const image = $("#profileAvatar");
+  image.src = avatarURL || "/icon-1254.png";
+  image.alt = `Фото: ${name || "пользователь"}`;
+  $("#changeAvatar").hidden = userID !== currentUser?.ID;
   $("#profileDialog").showModal();
-}
-async function handleMessages(event) {
+}async function handleMessages(event) {
   const older = event.target.closest("[data-load-older]");
   if (older) { openConversation(active, older.dataset.loadOlder); return; }
   const author = event.target.closest("[data-user-name]");
-  if (author) { openUserCard(author.dataset.userName); return; }
+  if (author) { openUserCard(author.dataset.userId, author.dataset.userName, author.dataset.avatarUrl); return; }
   await handleReaction(event);
 }
 async function handleReaction(event) {
@@ -186,7 +189,7 @@ async function openConversation(id, before = "") {
       (Array.isArray(list) ? list : [])
         .map(
           (m) =>
-            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><button class="messageAuthor" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
+            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
         )
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     $("#messages").onclick = handleMessages;
@@ -346,6 +349,18 @@ async function configurePush() {
   };
 }
 $("#closeProfile").onclick = () => $("#profileDialog").close();
+$("#changeAvatar").onclick = () => $("#profileAvatarFile").click();
+$("#profileAvatarFile").onchange = async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  if (!/image\/(jpeg|png|webp)/.test(file.type) || file.size > 2 * 1024 * 1024) { alert("Выберите JPEG, PNG или WebP размером до 2 МБ"); return; }
+  try {
+    const response = await fetch(`${api}/auth/avatar`, { method: "POST", credentials: "include", headers: { "Content-Type": file.type }, body: file });
+    const result = await response.json().catch(() => ({})); if (!response.ok) throw Error(result.error || "Не удалось сохранить фото");
+    currentUser.AvatarURL = `${result.avatarUrl}?v=${Date.now()}`;
+    $("#profileAvatar").src = currentUser.AvatarURL;
+    event.target.value = "";
+  } catch (error) { alert(error.message); }
+};
 $("#openUserMenu").onclick = () => $("#userMenuDialog").showModal();
 $("#toggleFavorite").onclick = async () => {
   if (!active || active === personalID || active === groupsID) return;

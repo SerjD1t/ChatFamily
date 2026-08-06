@@ -14,10 +14,13 @@ import (
 func (p *Postgres) User(id string) (chat.User, bool) {
 	var u chat.User
 	var permissions []string
-	if err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,permissions FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &permissions); err != nil {
+	if err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,permissions,COALESCE(avatar_key,'') FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL); err != nil {
 		return chat.User{}, false
 	}
 	u.Permissions = permissionMap(permissions)
+	if u.AvatarURL != "" {
+		u.AvatarURL = avatarURL(u.ID)
+	}
 	return u, true
 }
 
@@ -25,7 +28,7 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	if !actor.Permissions[chat.ManageUsers] {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT id, email, display_name, permissions FROM users ORDER BY display_name, id`)
+	rows, err := p.Pool.Query(context.Background(), `SELECT id, email, display_name, permissions, COALESCE(avatar_key,'') FROM users ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -34,16 +37,19 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	for rows.Next() {
 		var user chat.User
 		var permissions []string
-		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &permissions); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &permissions, &user.AvatarURL); err != nil {
 			return nil, err
 		}
 		user.Permissions = permissionMap(permissions)
+		if user.AvatarURL != "" {
+			user.AvatarURL = avatarURL(user.ID)
+		}
 		users = append(users, user)
 	}
 	return users, rows.Err()
 }
 func (p *Postgres) Contacts(actor chat.User) ([]chat.User, error) {
-	rows, err := p.Pool.Query(context.Background(), `SELECT id,display_name FROM users WHERE id<>$1 ORDER BY display_name,id`, actor.ID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT id,display_name,COALESCE(avatar_key,'') FROM users WHERE id<>$1 ORDER BY display_name,id`, actor.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +57,11 @@ func (p *Postgres) Contacts(actor chat.User) ([]chat.User, error) {
 	contacts := []chat.User{}
 	for rows.Next() {
 		var contact chat.User
-		if err := rows.Scan(&contact.ID, &contact.Name); err != nil {
+		if err := rows.Scan(&contact.ID, &contact.Name, &contact.AvatarURL); err != nil {
 			return nil, err
+		}
+		if contact.AvatarURL != "" {
+			contact.AvatarURL = avatarURL(contact.ID)
 		}
 		contacts = append(contacts, contact)
 	}
@@ -182,14 +191,14 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	if !p.member(cid, a.ID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
+	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
 	if e != nil {
 		return nil, e
 	}
 	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
-		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); e != nil {
+		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); e != nil {
 			rows.Close()
 			return nil, e
 		}
@@ -203,6 +212,9 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	attachments := p.attachmentsFor(out)
 	reactions := p.reactionsFor(out, a.ID)
 	for i := range out {
+		if out[i].AuthorAvatarURL != "" {
+			out[i].AuthorAvatarURL = avatarURL(out[i].AuthorID)
+		}
 		out[i].Attachments = attachments[out[i].ID]
 		out[i].Reactions = reactions[out[i].ID]
 	}
@@ -327,7 +339,7 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	if !p.member(cid, actor.ID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions FROM users u JOIN conversation_members m ON m.user_id=u.id WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
+	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions,COALESCE(u.avatar_key,'') FROM users u JOIN conversation_members m ON m.user_id=u.id WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
 	if err != nil {
 		return nil, err
 	}
@@ -336,10 +348,13 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	for rows.Next() {
 		var u chat.User
 		var permissions []string
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &permissions); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL); err != nil {
 			return nil, err
 		}
 		u.Permissions = permissionMap(permissions)
+		if u.AvatarURL != "" {
+			u.AvatarURL = avatarURL(u.ID)
+		}
 		users = append(users, u)
 	}
 	return users, rows.Err()
@@ -553,7 +568,7 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
 	if err != nil {
 		return chat.MessagePage{}, err
 	}
@@ -561,7 +576,7 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); err != nil {
 			return chat.MessagePage{}, err
 		}
 		out = append(out, m)
@@ -578,6 +593,9 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	attachments := p.attachmentsFor(out)
 	reactions := p.reactionsFor(out, a.ID)
 	for i := range out {
+		if out[i].AuthorAvatarURL != "" {
+			out[i].AuthorAvatarURL = avatarURL(out[i].AuthorID)
+		}
 		out[i].Attachments = attachments[out[i].ID]
 		out[i].Reactions = reactions[out[i].ID]
 		if out[i].AuthorID == a.ID {
@@ -613,4 +631,27 @@ func (p *Postgres) messageStatus(m chat.Message) string {
 		return "delivered"
 	}
 	return "sent"
+}
+
+func avatarURL(userID string) string { return "/api/v1/users/" + userID + "/avatar" }
+func (p *Postgres) SetAvatar(userID, key, contentType string) error {
+	result, err := p.Pool.Exec(context.Background(), `UPDATE users SET avatar_key=$1,avatar_content_type=$2 WHERE id=$3`, key, contentType, userID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return chat.ErrNotFound
+	}
+	return nil
+}
+func (p *Postgres) AvatarObject(viewerID, userID string) (string, string, error) {
+	if _, ok := p.User(viewerID); !ok {
+		return "", "", chat.ErrForbidden
+	}
+	var key, contentType string
+	err := p.Pool.QueryRow(context.Background(), `SELECT COALESCE(avatar_key,''),COALESCE(avatar_content_type,'') FROM users WHERE id=$1`, userID).Scan(&key, &contentType)
+	if err != nil || key == "" {
+		return "", "", chat.ErrNotFound
+	}
+	return key, contentType, nil
 }
