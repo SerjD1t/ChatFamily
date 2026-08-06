@@ -13,6 +13,8 @@ function authorHue(name) {
   for (const char of name) value = (value * 31 + char.charCodeAt(0)) % 360;
   return value;
 }
+const activeConversationKey = "familychat.activeConversation";
+function saveActive(id) { if (id) localStorage.setItem(activeConversationKey, id); }
 function directChats() {
   return conversations.filter((c) => c.kind === "direct");
 }
@@ -48,8 +50,9 @@ async function loadConversations() {
   favoriteIDs = new Set(favorites);
   renderConversations();
   if (!active) {
-    const family = conversations.find((c) => c.kind === "family");
-    if (family) openConversation(family.id);
+    const saved = localStorage.getItem(activeConversationKey);
+    if (saved === personalID || saved === groupsID || conversations.some((c) => c.id === saved)) openConversation(saved);
+    else { const family = conversations.find((c) => c.kind === "family"); if (family) openConversation(family.id); }
   }
 }
 function messageStatus(status) {
@@ -70,6 +73,18 @@ function messageStatus(status) {
 function reactionAddButton(message) {
   return `<button class="reaction reactionAdd" data-message="${message.id}" data-add-reaction="true" title="Добавить реакцию" aria-label="Добавить реакцию">＋</button><button class="reaction reactionReply" data-reply-id="${message.id}" title="Ответить" aria-label="Ответить">↩</button>`;
 }
+function openUserCard(name) {
+  $("#profileName").textContent = name || "Пользователь";
+  $("#profileDetails").textContent = name === currentUser?.Name ? "Это ваш профиль" : "Участник семейного чата";
+  $("#profileDialog").showModal();
+}
+async function handleMessages(event) {
+  const older = event.target.closest("[data-load-older]");
+  if (older) { openConversation(active, older.dataset.loadOlder); return; }
+  const author = event.target.closest("[data-user-name]");
+  if (author) { openUserCard(author.dataset.userName); return; }
+  await handleReaction(event);
+}
 async function handleReaction(event) {
   const button = event.target.closest("[data-message]");
   if (!button) return;
@@ -87,6 +102,7 @@ async function handleReaction(event) {
 async function openPersonal() {
   const version = ++loadVersion;
   active = personalID;
+  saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Личные";
   $("#manageMembers").hidden = true;
@@ -116,6 +132,7 @@ async function openPersonal() {
 async function openGroups() {
   const version = ++loadVersion;
   active = groupsID;
+  saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Все группы";
   $("#manageMembers").hidden = true;
@@ -143,11 +160,12 @@ async function startDirect(userID) {
     $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
-async function openConversation(id) {
+async function openConversation(id, before = "") {
   if (id === personalID) return openPersonal();
   if (id === groupsID) return openGroups();
   const version = ++loadVersion;
   active = id;
+  saveActive(active);
   renderConversations();
   const c = conversations.find((x) => x.id === id),
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
@@ -161,16 +179,17 @@ async function openConversation(id) {
   $("#toggleFavorite").setAttribute("aria-label", $("#toggleFavorite").title);
   $("#messages").innerHTML = '<p class="muted">Загрузка сообщений…</p>';
   try {
-    const page = await request(`/conversations/${id}/messages?limit=50`), list = page.messages || [];
+    const page = await request(`/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ""}`), list = page.messages || [];
     if (version !== loadVersion || id !== active) return;
     $("#messages").innerHTML =
+      (page.nextBefore ? `<button class="secondary loadOlder" data-load-older="${safe(page.nextBefore)}">Показать более ранние сообщения</button>` : "") +
       (Array.isArray(list) ? list : [])
         .map(
           (m) =>
-            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><strong style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</strong><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
+            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><button class="messageAuthor" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
         )
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
-    $("#messages").onclick = handleReaction;
+    $("#messages").onclick = handleMessages;
     $("#messages").scrollTop = $("#messages").scrollHeight;
     loadConversations().catch(() => {});
   } catch (e) {
@@ -326,6 +345,7 @@ async function configurePush() {
     }
   };
 }
+$("#closeProfile").onclick = () => $("#profileDialog").close();
 $("#openUserMenu").onclick = () => $("#userMenuDialog").showModal();
 $("#toggleFavorite").onclick = async () => {
   if (!active || active === personalID || active === groupsID) return;

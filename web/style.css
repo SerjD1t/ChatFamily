@@ -4,3 +4,5 @@
 .token{display:flex;align-items:center;justify-content:space-between;gap:.75rem}.token span{min-width:0}
 
 .messageStatus{font-weight:700;letter-spacing:-.18em;margin-left:.1rem}.messageStatus.sent,.messageStatus.delivered{color:#8a9692}.messageStatus.read{color:#168ac6}
+
+.messageAuthor{appearance:none;min-height:0;padding:0;background:transparent;text-align:left;font-size:.9rem;font-weight:700;color:hsl(var(--author-hue) 52% 35%)}.loadOlder{display:block;margin:0 auto .75rem}.profileCard{min-width:min(22rem,80vw)}.profileCard h2{margin-top:0}

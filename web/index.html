@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#315a4c"><link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#315a4c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon-1254.png" type="image/png"><link rel="apple-touch-icon" href="/icon-1254.png">
   <link rel="stylesheet" href="/style.css"><title>Семейный чат</title>
 </head>
 <body>
@@ -22,6 +22,7 @@
   <dialog id="userMenuDialog"><form method="dialog" class="userMenu"><h2 id="currentUserName">Пользователь</h2><button id="pushSettings" type="button" class="secondary" hidden>Уведомления</button><button id="administration" type="button" class="secondary" hidden>Администрирование</button><button id="logout" type="button" class="secondary">Выйти</button><button value="cancel">Закрыть</button></form></dialog>
   <dialog id="adminDialog"><form method="dialog" class="admin"><h2>Пользователи</h2><ul id="users"></ul><h2>Пригласить пользователя</h2><label>Email<input id="inviteEmail" type="email" required></label><fieldset><legend>Права</legend><label><input name="permission" type="checkbox" value="manage_users"> Администратор — управление пользователями и приглашениями</label><label><input name="permission" type="checkbox" value="send_messages" checked> Отправка сообщений</label><label><input name="permission" type="checkbox" value="edit_own_messages" checked> Изменение своих сообщений</label><label><input name="permission" type="checkbox" value="delete_own_messages" checked> Удаление своих сообщений</label><label><input name="permission" type="checkbox" value="create_groups"> Создание групп</label></fieldset><p id="inviteError" class="error"></p><div id="inviteToken" class="token" hidden><span id="inviteTokenText"></span><button id="copyInviteToken" type="button" class="secondary">Скопировать</button></div><p class="actions"><button value="cancel" formnovalidate class="secondary">Закрыть</button><button id="createInvite" value="default">Создать приглашение</button></p></form></dialog>
   <dialog id="membersDialog"><form method="dialog" class="admin"><h2>Участники группы</h2><ul id="groupMembers"></ul><label>Добавить пользователя<select id="memberSelect"></select></label><p id="memberError" class="error"></p><p class="actions"><button value="cancel" class="secondary">Закрыть</button><button id="addMember" value="default">Добавить</button></p></form></dialog>
+  <dialog id="profileDialog"><section class="profileCard"><h2 id="profileName"></h2><p id="profileDetails" class="muted"></p><p class="actions"><button id="closeProfile" type="button" class="secondary">Закрыть</button></p></section></dialog>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
