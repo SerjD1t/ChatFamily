@@ -56,6 +56,11 @@ type Message struct {
 	CreatedAt      time.Time    `json:"createdAt"`
 	EditedAt       *time.Time   `json:"editedAt,omitempty"`
 	DeletedAt      *time.Time   `json:"deletedAt,omitempty"`
+	Status         string       `json:"status,omitempty"`
+}
+type MessagePage struct {
+	Messages   []Message `json:"messages"`
+	NextBefore string    `json:"nextBefore,omitempty"`
 }
 
 // Backend is the storage contract used by the HTTP application.
@@ -71,4 +76,8 @@ type Backend interface {
 	DirectConversation(User, string) (Conversation, error)
 	AddMember(User, string, string) error
 	DeleteGroup(User, string) error
+}
+type PagedBackend interface {
+	MessagesPage(User, string, string, int) (MessagePage, error)
+	MarkDelivered(User, string) error
 }

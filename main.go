@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -383,12 +384,39 @@ func (a *app) createGroup(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, c)
 }
 func (a *app) messages(w http.ResponseWriter, r *http.Request) {
-	out, err := a.chat.Messages(a.user(id(r)), r.PathValue("id"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	actor, conversationID := a.user(id(r)), r.PathValue("id")
+	if paged, ok := a.chat.(chat.PagedBackend); ok {
+		out, err := paged.MessagesPage(actor, conversationID, r.URL.Query().Get("before"), limit)
+		if err != nil {
+			domainError(w, err)
+			return
+		}
+		write(w, http.StatusOK, out)
+		return
+	}
+	out, err := a.chat.Messages(actor, conversationID)
 	if err != nil {
 		domainError(w, err)
 		return
 	}
-	write(w, 200, out)
+	write(w, http.StatusOK, chat.MessagePage{Messages: out})
+}
+func (a *app) markDelivered(w http.ResponseWriter, r *http.Request) {
+	paged, ok := a.chat.(chat.PagedBackend)
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := paged.MarkDelivered(a.user(id(r)), r.PathValue("id")); err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.hub.publish(realtimeEvent{Type: "message.status", ConversationID: r.PathValue("id")})
 }
 func (a *app) createMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -404,7 +432,7 @@ func (a *app) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 201, m)
-	a.hub.publish()
+	a.hub.publish(realtimeEvent{Type: "message.updated", ConversationID: m.ConversationID, MessageID: m.ID})
 	go a.notifyMessage(m)
 }
 func (a *app) editMessage(w http.ResponseWriter, r *http.Request) {
@@ -420,7 +448,7 @@ func (a *app) editMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, m)
-	a.hub.publish()
+	a.hub.publish(realtimeEvent{Type: "message.updated", ConversationID: m.ConversationID, MessageID: m.ID})
 }
 func (a *app) deleteMessage(w http.ResponseWriter, r *http.Request) {
 	m, err := a.chat.DeleteMessage(a.user(id(r)), r.PathValue("id"))
@@ -429,7 +457,7 @@ func (a *app) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, m)
-	a.hub.publish()
+	a.hub.publish(realtimeEvent{Type: "message.updated", ConversationID: m.ConversationID, MessageID: m.ID})
 }
 func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
@@ -450,7 +478,7 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 		go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji)
 	}
 	w.WriteHeader(http.StatusNoContent)
-	a.hub.publish()
+	a.hub.publish(realtimeEvent{Type: "message.updated"})
 }
 func domainError(w http.ResponseWriter, err error) {
 	if errors.Is(err, chat.ErrForbidden) {
@@ -583,7 +611,7 @@ func (a *app) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	a.hub.publish()
+	a.hub.publish(realtimeEvent{Type: "conversations.changed"})
 }
 
 func (a *app) memberCandidates(w http.ResponseWriter, r *http.Request) {

@@ -52,7 +52,9 @@ async function loadConversations() {
     if (family) openConversation(family.id);
   }
 }
-function reactionButtons(message) {
+function messageStatus(status) {
+  return { sent: "отправлено", delivered: "доставлено", read: "прочитано" }[status] || "";
+}function reactionButtons(message) {
   const reactions = (message.reactions || [])
     .map(
       (r) =>
@@ -155,13 +157,13 @@ async function openConversation(id) {
   $("#toggleFavorite").setAttribute("aria-label", $("#toggleFavorite").title);
   $("#messages").innerHTML = '<p class="muted">Загрузка сообщений…</p>';
   try {
-    const list = await request(`/conversations/${id}/messages`);
+    const page = await request(`/conversations/${id}/messages?limit=50`), list = page.messages || [];
     if (version !== loadVersion || id !== active) return;
     $("#messages").innerHTML =
       (Array.isArray(list) ? list : [])
         .map(
           (m) =>
-            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><strong style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</strong><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
+            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><strong style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</strong><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? ` · ${messageStatus(m.status)}` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
         )
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     $("#messages").onclick = handleReaction;
@@ -517,11 +519,14 @@ startApp()
 function connectEvents() {
   const scheme = location.protocol === "https:" ? "wss" : "ws",
     socket = new WebSocket(`${scheme}://${location.host}/api/v1/events`);
-  socket.onmessage = async () => {
+  socket.onmessage = async (message) => {
     try {
+      const event = JSON.parse(message.data);
+      if (event.type === "message.created" && event.conversationId)
+        await request(`/conversations/${encodeURIComponent(event.conversationId)}/delivery`, { method: "POST" }).catch(() => {});
       await loadConversations();
       if (active === personalID) await openPersonal();
-      else if (active) await openConversation(active);
+      else if (active && (!event.conversationId || active === event.conversationId)) await openConversation(active);
     } catch (_) {}
   };
   socket.onclose = () => setTimeout(connectEvents, 2000);

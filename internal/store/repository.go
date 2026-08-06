@@ -544,3 +544,73 @@ func unique(a []string) []string {
 	return r
 }
 func id() string { b := make([]byte, 16); rand.Read(b); return hex.EncodeToString(b) }
+
+// MessagesPage returns a bounded, chronological page ending before the supplied message ID.
+func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (chat.MessagePage, error) {
+	if !p.member(cid, a.ID) {
+		return chat.MessagePage{}, chat.ErrForbidden
+	}
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
+	if err != nil {
+		return chat.MessagePage{}, err
+	}
+	defer rows.Close()
+	out := []chat.Message{}
+	for rows.Next() {
+		var m chat.Message
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); err != nil {
+			return chat.MessagePage{}, err
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return chat.MessagePage{}, err
+	}
+	page := chat.MessagePage{}
+	if len(out) > limit {
+		page.NextBefore = out[limit-1].ID
+		out = out[:limit]
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	attachments := p.attachmentsFor(out)
+	reactions := p.reactionsFor(out, a.ID)
+	for i := range out {
+		out[i].Attachments = attachments[out[i].ID]
+		out[i].Reactions = reactions[out[i].ID]
+		if out[i].AuthorID == a.ID {
+			out[i].Status = p.messageStatus(out[i])
+		}
+	}
+	if _, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_read_at=now(),last_delivered_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID); err != nil {
+		return chat.MessagePage{}, err
+	}
+	page.Messages = out
+	return page, nil
+}
+func (p *Postgres) MarkDelivered(a chat.User, cid string) error {
+	result, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_delivered_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return chat.ErrForbidden
+	}
+	return nil
+}
+func (p *Postgres) messageStatus(m chat.Message) string {
+	var recipients, unread, undelivered int
+	err := p.Pool.QueryRow(context.Background(), `SELECT COUNT(*),COUNT(*) FILTER (WHERE last_read_at IS NULL OR last_read_at<$2),COUNT(*) FILTER (WHERE last_delivered_at IS NULL OR last_delivered_at<$2) FROM conversation_members WHERE conversation_id=$1 AND user_id<>$3`, m.ConversationID, m.CreatedAt, m.AuthorID).Scan(&recipients, &unread, &undelivered)
+	if err != nil || recipients == 0 {
+		return "sent"
+	}
+	if unread == 0 {
+		return "read"
+	}
+	if undelivered == 0 {
+		return "delivered"
+	}
+	return "sent"
+}

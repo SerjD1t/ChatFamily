@@ -36,6 +36,7 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/conversations/{id}/member-candidates", a.auth(a.memberCandidates))
 	mux.HandleFunc("GET /api/v1/conversations/{id}/messages", a.auth(a.messages))
 	mux.HandleFunc("POST /api/v1/conversations/{id}/messages", a.auth(a.createMessage))
+	mux.HandleFunc("POST /api/v1/conversations/{id}/delivery", a.auth(a.markDelivered))
 	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
 	mux.HandleFunc("DELETE /api/v1/messages/{id}", a.auth(a.deleteMessage))
 	mux.HandleFunc("POST /api/v1/messages/{id}/reactions", a.auth(a.toggleReaction))
