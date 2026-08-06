@@ -53,7 +53,11 @@ async function loadConversations() {
   }
 }
 function messageStatus(status) {
-  return { sent: "отправлено", delivered: "доставлено", read: "прочитано" }[status] || "";
+  return {
+    sent: '<span class="messageStatus sent" title="Отправлено" aria-label="Отправлено">✓</span>',
+    delivered: '<span class="messageStatus delivered" title="Получено" aria-label="Получено">✓✓</span>',
+    read: '<span class="messageStatus read" title="Прочитано" aria-label="Прочитано">✓✓</span>',
+  }[status] || "";
 }function reactionButtons(message) {
   const reactions = (message.reactions || [])
     .map(
@@ -163,7 +167,7 @@ async function openConversation(id) {
       (Array.isArray(list) ? list : [])
         .map(
           (m) =>
-            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><strong style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</strong><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? ` · ${messageStatus(m.status)}` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
+            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble"><strong style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</strong><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
         )
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     $("#messages").onclick = handleReaction;
