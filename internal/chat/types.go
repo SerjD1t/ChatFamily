@@ -49,6 +49,20 @@ type FamilyInfo struct {
 	Title string     `json:"title"`
 	Role  FamilyRole `json:"role"`
 }
+
+type UserPreferences struct {
+	Locale      string `json:"locale"`
+	ColorScheme string `json:"colorScheme"`
+}
+
+type ShoppingItem struct {
+	ID          string     `json:"id"`
+	FamilyID    string     `json:"familyId"`
+	Title       string     `json:"title"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	CreatedBy   string     `json:"createdBy"`
+	CreatedAt   time.Time  `json:"createdAt"`
+}
 type ConversationKind string
 
 const (

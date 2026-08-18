@@ -373,6 +373,8 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	if !p.member(cid, actor.ID) {
 		return nil, chat.ErrForbidden
 	}
+	familyID, inFamily := p.FamilyForConversation(cid)
+	showEmails := inFamily && p.FamilyAdmin(actor.ID, familyID)
 	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions,COALESCE(u.avatar_key,''),COALESCE(fm.relationship,'Неопределено'),COALESCE(fm.role,'member'),COALESCE((SELECT array_agg(category ORDER BY category) FROM family_member_categories c WHERE c.family_id=fm.family_id AND c.user_id=u.id),ARRAY[]::text[]) FROM users u JOIN conversation_members m ON m.user_id=u.id LEFT JOIN family_members fm ON fm.user_id=u.id AND fm.family_id=(SELECT family_id FROM conversations WHERE id=$1) WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
 	if err != nil {
 		return nil, err
@@ -388,6 +390,9 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 		}
 		u.Permissions = permissionMap(permissions)
 		u.FamilyCategories = toFamilyCategories(categories)
+		if !showEmails {
+			u.Email = ""
+		}
 		if u.AvatarURL != "" {
 			u.AvatarURL = avatarURL(u.ID)
 		}

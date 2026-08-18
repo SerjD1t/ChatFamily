@@ -1,7 +1,11 @@
 import { api, $, request, safe } from "./api.js";
 import { activeFamily, canManageFamily, familyConversations } from "./family-context.js";
+import { announce, confirmAction, withBusy } from "./ui.js";
 const personalID = "__personal__",
-  groupsID = "__groups__";
+  groupsID = "__groups__",
+  childrenID = "__children__",
+  grandparentsID = "__grandparents__",
+  shoppingID = "__shopping__";
 let conversations = [],
   favoriteIDs = new Set(),
   active = null,
@@ -12,6 +16,8 @@ let conversations = [],
   families = [],
   activeFamilyID = "";
 let editingApplicationUser = null;
+let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false;
+let userPreferences = { locale: "ru", colorScheme: "system" };
 const familyCategoryDefinitions = [
   ["child", "Ребёнок"],
   ["parent", "Родитель"],
@@ -19,11 +25,25 @@ const familyCategoryDefinitions = [
   ["guardian", "Опекун"],
   ["relative", "Родственник"],
 ];
+const familySections = [
+  [childrenID, "children", "child", "👶"],
+  [grandparentsID, "grandparents", "grandparent", "👵"],
+  [shoppingID, "shopping", "shopping", "🛒"],
+];
 let minPasswordLength = 12;
+const translations = {
+  ru: { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" },
+  en: { personal: "Direct messages", family: "Family", familyChat: "Family chat", children: "Children", grandparents: "Grandparents", shopping: "Shopping", chats: "Family chats", allChats: "All family chats" },
+};
+function t(key) { return (translations[userPreferences.locale] || translations.ru)[key] || key; }
 function applyPasswordPolicy(policy) {
   minPasswordLength = policy.minPasswordLength || 12;
   for (const selector of ["#registerPassword", "#invitePassword", "#invitePasswordRepeat", "#newPassword", "#newPasswordRepeat"])
     $(selector).minLength = minPasswordLength;
+}
+function applyInterfacePreferences() {
+  document.documentElement.lang = userPreferences.locale || "ru";
+  document.documentElement.dataset.theme = userPreferences.colorScheme || "system";
 }
 async function loadPasswordPolicy() {
   try { applyPasswordPolicy(await request("/password-policy")); } catch (_) {}
@@ -34,7 +54,24 @@ function authorHue(name) {
   return value;
 }
 const activeConversationKey = "familychat.activeConversation";
+const activeFamilyKey = "familychat.activeFamily";
 function saveActive(id) { if (id) localStorage.setItem(activeConversationKey, id); }
+const mobileBackButton = document.createElement("button");
+mobileBackButton.type = "button";
+mobileBackButton.className = "secondary mobileBack";
+mobileBackButton.textContent = "‹ Назад";
+mobileBackButton.hidden = true;
+document.querySelector(".chatHead")?.prepend(mobileBackButton);
+function openMobileContent() {
+  if (!matchMedia("(max-width: 760px)").matches) return;
+  document.body.classList.add("mobileContentOpen");
+  mobileBackButton.hidden = false;
+}
+function closeMobileContent() {
+  document.body.classList.remove("mobileContentOpen");
+  mobileBackButton.hidden = true;
+}
+mobileBackButton.onclick = closeMobileContent;
 function directChats() {
   return conversations.filter((c) => c.kind === "direct");
 }
@@ -49,11 +86,12 @@ function renderConversations() {
     groupsUnread = groups.reduce((n, c) => n + (c.unreadCount || 0), 0),
     button = (id, title, unread) =>
       `<button class="conversation ${active === id ? "selected" : ""}" data-id="${safe(id)}"><span>${safe(title)}</span>${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</button>`;
+  const sectionButton = (id, title, icon, unread = 0) => `<button class="conversation sectionLink ${active === id ? "selected" : ""}" data-id="${id}"><span>${icon} ${title}</span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
   $("#conversations").innerHTML =
-    (family ? button(family.id, "Семья", family.unreadCount) : "") +
-    button(personalID, "Личные", personalUnread) +
+    sectionButton(personalID, t("personal"), "◌", personalUnread) +
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount) : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.map((c) => button(c.id, c.title, c.unreadCount)).join("") +
-    button(groupsID, "Все группы", groupsUnread);
+    button(groupsID, t("allChats"), groupsUnread);
   $("#conversations").onclick = (e) => {
     const item = e.target.closest("[data-id]");
     if (item) openConversation(item.dataset.id);
@@ -98,6 +136,11 @@ function openUserCard(userID, name, avatarURL) {
   image.src = avatarURL || "/icon-1254.png";
   image.alt = `Фото: ${name || "пользователь"}`;
   $("#changeAvatar").hidden = userID !== currentUser?.ID;
+  $("#openInterfaceSettings").hidden = userID !== currentUser?.ID;
+  $("#interfaceSettingsForm").hidden = true;
+  $("#interfaceLocale").value = userPreferences.locale || "ru";
+  $("#interfaceColorScheme").value = userPreferences.colorScheme || "system";
+  $("#interfaceSettingsError").textContent = "";
   $("#openPasswordForm").hidden = userID !== currentUser?.ID;
   $("#passwordForm").hidden = true;
   $("#passwordForm").reset();
@@ -125,11 +168,13 @@ async function handleReaction(event) {
   openConversation(active);
 }
 async function openPersonal() {
+  openMobileContent();
   const version = ++loadVersion;
   active = personalID;
   saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Личные";
+  $("#composer").hidden = true;
   $("#manageMembers").hidden = true;
   $("#messages").innerHTML = '<p class="muted">Загрузка участников…</p>';
   try {
@@ -155,11 +200,13 @@ async function openPersonal() {
   }
 }
 async function openGroups() {
+  openMobileContent();
   const version = ++loadVersion;
   active = groupsID;
   saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Все группы";
+  $("#composer").hidden = true;
   $("#manageMembers").hidden = true;
   $("#toggleFavorite").hidden = true;
   const groups = familyConversations(conversations, activeFamilyID);
@@ -186,18 +233,24 @@ async function startDirect(userID) {
 async function openConversation(id, before = "") {
   if (id === personalID) return openPersonal();
   if (id === groupsID) return openGroups();
+  if (id === childrenID || id === grandparentsID) return openFamilyCategory(id);
+  if (id === shoppingID) return openShopping();
   const version = ++loadVersion;
+  openMobileContent();
   active = id;
+  $("#composer").hidden = false;
   saveActive(active);
   renderConversations();
   const c = conversations.find((x) => x.id === id),
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
   $("#chatTitle").textContent = c?.title || "Диалог";
-  $("#manageMembers").hidden = c?.kind !== "group"; $("#deleteGroup").hidden = c?.kind !== "group";
+  const canManageGroup = c?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
+  $("#manageMembers").hidden = c?.kind !== "group";
+  $("#deleteGroup").hidden = c?.kind !== "group" || !canManageGroup;
   const canAdministerFamily = c?.kind === "family" && canManageFamily(families, activeFamilyID);
   $("#inviteFamily").hidden = !canAdministerFamily;
   $("#searchMessages").hidden = !c;
-  $("#renameConversation").hidden = !(c && c.familyId === activeFamilyID && canManageFamily(families, activeFamilyID));
+  $("#renameConversation").hidden = !(c && canManageGroup);
   $("#toggleFavorite").hidden = c?.kind !== "group";
   $("#toggleFavorite").textContent = isFavorite ? "★" : "☆";
   $("#toggleFavorite").title = isFavorite
@@ -224,6 +277,41 @@ async function openConversation(id, before = "") {
       $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
+
+async function openFamilyCategory(sectionID) {
+  const definition = familySections.find(([id]) => id === sectionID);
+  if (!definition || !activeFamilyID) return;
+  const [, title, category] = definition;
+  openMobileContent();
+  active = sectionID; saveActive(active); renderConversations();
+  $("#chatTitle").textContent = t(title);
+  $("#composer").hidden = true;
+  $("#messages").innerHTML = '<p class="muted">Загрузка участников…</p>';
+  try {
+    const familyConversation = conversations.find((conversation) => conversation.kind === "family" && conversation.familyId === activeFamilyID);
+    const members = familyConversation ? await request(`/conversations/${encodeURIComponent(familyConversation.id)}/members`) : [];
+    const filtered = members.filter((member) => member.FamilyCategories?.includes(category));
+    $("#messages").innerHTML = filtered.length ? `<div class="familyDirectory">${filtered.map((member) => `<button class="personalContact" data-user-id="${safe(member.ID)}"><span><strong>${safe(member.Name)}</strong><small class="muted">${safe(member.FamilyRelationship || "")}</small></span><span>Написать</span></button>`).join("")}</div>` : '<section class="emptyState"><h3>Пока никого нет</h3><p>Владелец семьи может назначить эту категорию в управлении семьёй.</p></section>';
+    $("#messages").onclick = (event) => { const userID = event.target.closest("[data-user-id]")?.dataset.userId; if (userID) startDirect(userID); };
+  } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
+}
+
+async function openShopping() {
+  openMobileContent();
+  active = shoppingID; saveActive(active); renderConversations();
+  $("#chatTitle").textContent = t("shopping");
+  $("#composer").hidden = true;
+  $("#messages").innerHTML = '<p class="muted">Загрузка покупок…</p>';
+  try {
+    const items = await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`);
+    const pending = items.filter((item) => !item.completedAt), done = items.filter((item) => item.completedAt);
+    const renderItem = (item) => `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label>${(item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID)) ? `<button class="secondary" data-shopping-delete="${safe(item.id)}" aria-label="Удалить покупку">×</button>` : ""}</li>`;
+    $("#messages").innerHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="visuallyHidden" for="shoppingTitle">Добавить покупку</label><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку"><button>Добавить</button></form><h3>Купить</h3><ul>${pending.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul>${done.length ? `<details><summary>Куплено: ${done.length}</summary><ul>${done.map(renderItem).join("")}</ul></details>` : ""}</section>`;
+    $("#shoppingForm").onsubmit = async (event) => { event.preventDefault(); const title = $("#shoppingTitle").value.trim(); if (!title) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`, { method: "POST", body: JSON.stringify({ title }) }); announce("Покупка добавлена"); openShopping(); } catch (error) { announce(error.message, "error"); } };
+    $("#messages").onchange = async (event) => { const id = event.target.dataset.shoppingToggle; if (!id) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ completed: event.target.checked }) }); openShopping(); } catch (error) { announce(error.message, "error"); } };
+    $("#messages").onclick = async (event) => { const id = event.target.dataset.shoppingDelete; if (!id) return; if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
+  } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
+}
 function renderAttachments() {
   $("#attachmentList").textContent = pendingFiles.length
     ? pendingFiles.map((file) => file.name).join(", ")
@@ -246,18 +334,23 @@ async function uploadAttachment(file) {
   return r.json();
 }
 async function startApp() {
-  [currentUser, families] = await Promise.all([request("/auth/me"), request("/families")]);
-  activeFamilyID = families[0]?.id || "";
+  [currentUser, families, userPreferences] = await Promise.all([request("/auth/me"), request("/families"), request("/user/preferences")]);
+  applyInterfacePreferences();
+  const savedFamily = localStorage.getItem(activeFamilyKey);
+  activeFamilyID = families.some((family) => family.id === savedFamily) ? savedFamily : (families[0]?.id || "");
   const selector = $("#familySelect");
   selector.innerHTML = families.map((f) => `<option value="${safe(f.id)}">${safe(f.title)}</option>`).join("");
   $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
 	$("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
 	$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
+	$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
   selector.hidden = families.length < 2;
   selector.onchange = async () => {
     activeFamilyID = selector.value;
+    localStorage.setItem(activeFamilyKey, activeFamilyID);
     active = null;
 		$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
+		$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
     localStorage.removeItem(activeConversationKey);
     $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
 		$("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
@@ -265,6 +358,7 @@ async function startApp() {
   };
   $("#currentUserName").textContent = currentUser.Name || "Пользователь";
   $("#currentUserHeader").textContent = currentUser.Name || "Пользователь";
+  $("#currentUserInitial").textContent = (currentUser.Name || "П").slice(0, 1).toUpperCase();
   $("#login").hidden = true;
   $("#app").hidden = false;
   $("#newFamily").hidden = false;
@@ -303,6 +397,8 @@ async function openAdmin() {
       if (!user) return;
       const permissions = Object.keys(user.Permissions || {}),
         index = permissions.indexOf("manage_application");
+      const granting = index < 0;
+      if (!await confirmAction({ title: granting ? "Назначить администратора?" : "Снять права администратора?", message: granting ? `${user.Name} получит доступ к управлению всем приложением.` : `${user.Name} потеряет доступ к администрированию приложения.`, confirmLabel: granting ? "Назначить" : "Снять права", destructive: !granting })) return;
       if (index < 0) permissions.push("manage_application");
       else permissions.splice(index, 1);
       try {
@@ -311,14 +407,10 @@ async function openAdmin() {
           body: JSON.stringify({ permissions }),
         });
         await openAdmin();
-      } catch (e) {
-        alert(e.message);
-      }
+      } catch (e) { announce(e.message, "error"); }
     };
     $("#applicationAdminDialog").showModal();
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { announce(e.message, "error"); }
 }
 function openApplicationPermissions(user) {
   editingApplicationUser = user;
@@ -338,18 +430,18 @@ function openApplicationPermissions(user) {
 async function openMembers() {
   if (!active || active === personalID) return;
   try {
-    const [members, candidates] = await Promise.all([
-        request(`/conversations/${active}/members`),
-        request(`/conversations/${active}/member-candidates`),
-      ]),
-      ids = new Set(members.map((u) => u.ID));
-    $("#membersDialog h2").textContent = "Участники группы";
-    $("#memberSelect").closest("label").hidden = false;
-    $("#addMember").hidden = false;
+    const conversation = conversations.find((item) => item.id === active);
+    const canManage = conversation?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
+    const members = await request(`/conversations/${active}/members`);
+    const candidates = canManage ? await request(`/conversations/${active}/member-candidates`) : [];
+    const ids = new Set(members.map((u) => u.ID));
+    $("#membersTitle").textContent = canManage ? "Участники группы" : "Состав группы";
+    $("#memberCandidateLabel").hidden = !canManage;
+    $("#addMember").hidden = !canManage;
     $("#groupMembers").innerHTML = members
       .map(
         (u) =>
-          `<li><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small>${u.ID === currentUser.ID ? "" : `<button class="removeMember secondary" data-id="${safe(u.ID)}">Удалить</button>`}</li>`,
+          `<li><strong>${safe(u.Name)}</strong>${u.Email ? `<small>${safe(u.Email)}</small>` : ""}${canManage && u.ID !== currentUser.ID ? `<button class="removeMember secondary" data-id="${safe(u.ID)}">Удалить</button>` : ""}</li>`,
       )
       .join("");
     const options = candidates
@@ -361,19 +453,20 @@ async function openMembers() {
       .join("");
     $("#memberSelect").innerHTML =
       options || '<option value="">Нет доступных пользователей</option>';
-    $("#addMember").disabled = !options;
+    $("#addMember").disabled = !options || !canManage;
     $("#groupMembers").onclick = async (e) => {
-      if (!e.target.dataset.id || !confirm("Удалить участника из группы?"))
+      if (!canManage || !e.target.dataset.id)
         return;
-      await request(
-        `/conversations/${active}/members/${encodeURIComponent(e.target.dataset.id)}`,
-        { method: "DELETE" },
-      );
-      openMembers();
-      loadConversations();
+      if (!await confirmAction({ title: "Удалить участника?", message: "Он потеряет доступ к этой группе, но останется в семье.", confirmLabel: "Удалить", destructive: true })) return;
+      try {
+        await request(`/conversations/${active}/members/${encodeURIComponent(e.target.dataset.id)}`, { method: "DELETE" });
+        announce("Участник удалён из группы");
+        openMembers();
+        loadConversations();
+      } catch (error) { $("#memberError").textContent = error.message; }
     };
     $("#membersDialog").showModal();
-  } catch (e) { alert(e.message); }
+  } catch (error) { announce(error.message, "error"); }
 }
 async function openFamilyManagement() {
   if (!canManageFamily(families, activeFamilyID)) return;
@@ -382,38 +475,58 @@ async function openFamilyManagement() {
   try {
     const members = await request(`/conversations/${encodeURIComponent(familyConversation.id)}/members`);
     const family = activeFamily(families, activeFamilyID);
-    const isOwner = family?.role === "owner";
+    familyManagerIsOwner = family?.role === "owner";
+    familyMemberSelection = new Set();
+    familyMemberDrafts = new Map(members.map((user) => [user.ID, { ...user, FamilyCategories: [...(user.FamilyCategories || [])].sort(), original: JSON.stringify({ role: user.FamilyRole, relationship: user.FamilyRelationship || "Неопределено", categories: [...(user.FamilyCategories || [])].sort() }) }]));
     $("#familyAdminTitle").textContent = `Семья: ${family?.title || ""}`;
     $("#familyAdminError").textContent = "";
-    $("#familyAdminError").className = "";
-    $("#familyMembers").innerHTML = members.map((user) => `
-      <li class="familyMemberEditor">
-        <strong>${safe(user.Name)}</strong><small>${safe(user.Email)}</small>
-        <label>Роль в семье<select data-family-role="${safe(user.ID)}" ${isOwner ? "" : "disabled"}>
-          <option value="owner" ${user.FamilyRole === "owner" ? "selected" : ""}>Владелец</option>
-          <option value="admin" ${user.FamilyRole === "admin" ? "selected" : ""}>Администратор семьи</option>
-          <option value="member" ${user.FamilyRole !== "owner" && user.FamilyRole !== "admin" ? "selected" : ""}>Участник</option>
-        </select>${isOwner ? "" : "<small>Роли изменяет только владелец семьи.</small>"}</label>
-        <fieldset class="familyCategories"><legend>Категории</legend>${familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" data-family-category="${safe(user.ID)}" value="${value}" ${user.FamilyCategories?.includes(value) ? "checked" : ""} ${isOwner ? "" : "disabled"}> ${label}</label>`).join("")}${isOwner ? "" : "<small>Категории назначает только владелец семьи.</small>"}</fieldset>
-        <label>Отображаемый статус<input data-family-relationship="${safe(user.ID)}" maxlength="80" value="${safe(user.FamilyRelationship || "Неопределено")}"></label>
-        <button type="button" class="secondary" data-save-family-user="${safe(user.ID)}">Сохранить</button>
-      </li>`).join("");
-    $("#familyMembers").onclick = async (event) => {
-      const userID = event.target.dataset.saveFamilyUser;
-      if (!userID) return;
-      const role = document.querySelector(`[data-family-role="${CSS.escape(userID)}"]`).value;
-      const relationship = document.querySelector(`[data-family-relationship="${CSS.escape(userID)}"]`).value;
-      const categories = isOwner ? [...document.querySelectorAll(`[data-family-category="${CSS.escape(userID)}"]:checked`)].map((input) => input.value) : undefined;
-      try {
-        await request(`/families/${encodeURIComponent(activeFamilyID)}/members/${encodeURIComponent(userID)}`, {
-          method: "PATCH", body: JSON.stringify({ role, relationship, categories }),
-        });
-        $("#familyAdminError").textContent = "Изменения сохранены";
-        $("#familyAdminError").className = "success";
-      } catch (error) { $("#familyAdminError").textContent = error.message; $("#familyAdminError").className = "error"; }
-    };
+    $("#familyBulkEdit").hidden = !familyManagerIsOwner;
+    $("#familyBulkCategories").innerHTML = familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" value="${value}"> ${label}</label>`).join("");
+    $("#familyMemberSearch").value = "";
+    $("#familyMemberRoleFilter").value = "";
+    $("#familyMemberCategoryFilter").value = "";
+    renderFamilyMembers();
     $("#familyAdminDialog").showModal();
-  } catch (error) { $("#familyAdminError").textContent = error.message; $("#familyAdminError").className = "error"; }
+  } catch (error) { announce(error.message, "error"); }
+}
+
+function familyDraftDirty(draft) {
+  return JSON.stringify({ role: draft.FamilyRole, relationship: draft.FamilyRelationship || "Неопределено", categories: [...(draft.FamilyCategories || [])].sort() }) !== draft.original;
+}
+function updateFamilyDirtyState() {
+  const dirty = [...familyMemberDrafts.values()].some(familyDraftDirty);
+  $("#familyDirtyNotice").hidden = !dirty;
+  $("#saveAllFamilyMembers").hidden = !dirty;
+}
+function renderFamilyMembers() {
+  const query = $("#familyMemberSearch").value.trim().toLocaleLowerCase();
+  const role = $("#familyMemberRoleFilter").value, category = $("#familyMemberCategoryFilter").value;
+  const visible = [...familyMemberDrafts.values()].filter((user) => {
+    const categories = user.FamilyCategories || [];
+    return (!query || `${user.Name} ${user.Email}`.toLocaleLowerCase().includes(query)) && (!role || user.FamilyRole === role) && (!category || (category === "none" ? !categories.length : categories.includes(category)));
+  });
+  $("#familyMembers").innerHTML = visible.length ? visible.map((user) => `
+    <li class="familyMemberEditor" data-family-member="${safe(user.ID)}">
+      ${familyManagerIsOwner ? `<label class="familySelection"><input type="checkbox" data-family-select="${safe(user.ID)}" ${familyMemberSelection.has(user.ID) ? "checked" : ""}> Выбрать</label>` : ""}
+      <strong>${safe(user.Name)}</strong><small>${safe(user.Email)}</small>
+      <label>Роль доступа<select data-family-role="${safe(user.ID)}" ${familyManagerIsOwner ? "" : "disabled"}>
+        <option value="owner" ${user.FamilyRole === "owner" ? "selected" : ""}>Владелец</option><option value="admin" ${user.FamilyRole === "admin" ? "selected" : ""}>Администратор семьи</option><option value="member" ${user.FamilyRole !== "owner" && user.FamilyRole !== "admin" ? "selected" : ""}>Участник</option>
+      </select>${familyManagerIsOwner ? "" : "<small>Роли и категории меняет только владелец семьи.</small>"}</label>
+      <fieldset class="familyCategories"><legend>Категории <small>необязательно</small></legend>${familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" data-family-category="${safe(user.ID)}" value="${value}" ${user.FamilyCategories?.includes(value) ? "checked" : ""} ${familyManagerIsOwner ? "" : "disabled"}> ${label}</label>`).join("")}</fieldset>
+      <label>Отображаемый статус<input data-family-relationship="${safe(user.ID)}" maxlength="80" value="${safe(user.FamilyRelationship || "Неопределено")}"></label>
+      <button type="button" class="secondary" data-save-family-user="${safe(user.ID)}" ${familyDraftDirty(user) ? "" : "disabled"}>Сохранить</button>
+    </li>`).join("") : '<li class="muted">Подходящих участников нет.</li>';
+  updateFamilyDirtyState();
+}
+async function saveFamilyMember(userID, button) {
+  const draft = familyMemberDrafts.get(userID);
+  if (!draft || !familyDraftDirty(draft)) return;
+  try {
+    await withBusy(button, "Сохраняем…", async () => request(`/families/${encodeURIComponent(activeFamilyID)}/members/${encodeURIComponent(userID)}`, { method: "PATCH", body: JSON.stringify({ role: draft.FamilyRole, relationship: draft.FamilyRelationship, categories: familyManagerIsOwner ? draft.FamilyCategories : undefined }) }));
+    draft.original = JSON.stringify({ role: draft.FamilyRole, relationship: draft.FamilyRelationship || "Неопределено", categories: [...(draft.FamilyCategories || [])].sort() });
+    announce("Изменения сохранены");
+    renderFamilyMembers();
+  } catch (error) { $("#familyAdminError").textContent = error.message; }
 }
 function keyBytes(key) {
   const value = (key + "=".repeat((4 - (key.length % 4)) % 4))
@@ -455,9 +568,7 @@ async function configurePush() {
         body: JSON.stringify(subscription),
       });
       button.textContent = "Уведомления: вкл.";
-    } catch (e) {
-      alert(e.message);
-    }
+    } catch (e) { announce(e.message, "error"); }
   };
 }
 $("#closeProfile").onclick = () => $("#profileDialog").close();
@@ -478,17 +589,27 @@ $("#passwordForm").onsubmit = async (event) => {
 $("#changeAvatar").onclick = () => $("#profileAvatarFile").click();
 $("#profileAvatarFile").onchange = async (event) => {
   const file = event.target.files[0]; if (!file) return;
-  if (!/image\/(jpeg|png|webp)/.test(file.type) || file.size > 2 * 1024 * 1024) { alert("Выберите JPEG, PNG или WebP размером до 2 МБ"); return; }
+  if (!/image\/(jpeg|png|webp)/.test(file.type) || file.size > 2 * 1024 * 1024) { announce("Выберите JPEG, PNG или WebP размером до 2 МБ", "error"); return; }
   try {
     const response = await fetch(`${api}/auth/avatar`, { method: "POST", credentials: "include", headers: { "Content-Type": file.type }, body: file });
     const result = await response.json().catch(() => ({})); if (!response.ok) throw Error(result.error || "Не удалось сохранить фото");
     currentUser.AvatarURL = `${result.avatarUrl}?v=${Date.now()}`;
     $("#profileAvatar").src = currentUser.AvatarURL;
     event.target.value = "";
-  } catch (error) { alert(error.message); }
+  } catch (error) { announce(error.message, "error"); }
 };
 $("#openUserMenu").onclick = () => $("#userMenuDialog").showModal();
 $("#myProfile").onclick = () => { $("#userMenuDialog").close(); openUserCard(currentUser.ID, currentUser.Name, currentUser.AvatarURL); };
+$("#openInterfaceSettings").onclick = () => { $("#interfaceSettingsForm").hidden = !$("#interfaceSettingsForm").hidden; };
+$("#interfaceSettingsForm").onsubmit = async (event) => {
+  event.preventDefault();
+  try {
+    userPreferences = await withBusy(event.submitter, "Сохраняем…", async () => request("/user/preferences", { method: "PUT", body: JSON.stringify({ locale: $("#interfaceLocale").value, colorScheme: $("#interfaceColorScheme").value }) }));
+    applyInterfacePreferences();
+    renderConversations();
+    $("#interfaceSettingsError").textContent = "Настройки интерфейса сохранены";
+  } catch (error) { $("#interfaceSettingsError").textContent = error.message; }
+};
 $("#toggleFavorite").onclick = async () => {
   if (!active || active === personalID || active === groupsID) return;
   const favorite = !favoriteIDs.has(active);
@@ -501,9 +622,7 @@ $("#toggleFavorite").onclick = async () => {
     else favoriteIDs.delete(active);
     renderConversations();
     openConversation(active);
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { announce(e.message, "error"); }
 };
 $("#administration").onclick = openAdmin;
 $("#closeApplicationAdmin").onclick = () => $("#applicationAdminDialog").close();
@@ -515,35 +634,78 @@ $("#applicationSettingsForm").onsubmit = async (event) => {
     $("#applicationSettingsError").textContent = "Правило сохранено";
   } catch (error) { $("#applicationSettingsError").textContent = error.message; }
 };
-$("#savePermissions").onclick = async (event) => { event.preventDefault(); if (!editingApplicationUser) return; const permissions = [...$("#permissionList").querySelectorAll("input:checked")].map((input) => input.value); try { await request(`/users/${encodeURIComponent(editingApplicationUser.ID)}/permissions`, { method: "PATCH", body: JSON.stringify({ permissions }) }); $("#permissionsDialog").close(); await openAdmin(); } catch (error) { alert(error.message); } };
+$("#savePermissions").onclick = async (event) => { event.preventDefault(); if (!editingApplicationUser) return; const permissions = [...$("#permissionList").querySelectorAll("input:checked")].map((input) => input.value); try { await withBusy(event.currentTarget, "Сохраняем…", async () => request(`/users/${encodeURIComponent(editingApplicationUser.ID)}/permissions`, { method: "PATCH", body: JSON.stringify({ permissions }) })); $("#permissionsDialog").close(); announce("Права приложения сохранены"); await openAdmin(); } catch (error) { announce(error.message, "error"); } };
 $("#newFamily").onclick = () => {
   $("#parentFamily").innerHTML = '<option value="">Независимая семья</option>' + families.map((family) => `<option value="${safe(family.id)}" ${family.id === activeFamilyID ? "selected" : ""}>${safe(family.title)}</option>`).join("");
   $("#userMenuDialog").close();
   $("#familyDialog").showModal();
 };
+$("#openFamilyMenu").onclick = () => {
+  const family = activeFamily(families, activeFamilyID);
+  $("#familyMenuDescription").textContent = family ? `Роль в семье: ${({ owner: "владелец", admin: "администратор", member: "участник" })[family.role] || "участник"}` : "Создайте семью или примите приглашение.";
+  $("#familyMenuDialog").showModal();
+};
+$("#closeFamilyMenu").onclick = () => $("#familyMenuDialog").close();
+$("#openCreateFamily").onclick = () => { $("#familyMenuDialog").close(); $("#newFamily").click(); };
 $("#createFirstFamily").onclick = () => $("#newFamily").click();
-$("#manageCurrentFamily").onclick = openFamilyManagement;
+$("#manageCurrentFamily").onclick = () => { $("#familyMenuDialog").close(); openFamilyManagement(); };
+for (const selector of ["#familyMemberSearch", "#familyMemberRoleFilter", "#familyMemberCategoryFilter"]) {
+  $(selector).oninput = renderFamilyMembers;
+  $(selector).onchange = renderFamilyMembers;
+}
+$("#familyMembers").onchange = (event) => {
+  const target = event.target, userID = target.closest("[data-family-member]")?.dataset.familyMember;
+  if (!userID) return;
+  const draft = familyMemberDrafts.get(userID);
+  if (!draft) return;
+  if (target.dataset.familySelect) {
+    if (target.checked) familyMemberSelection.add(userID); else familyMemberSelection.delete(userID);
+  } else if (target.dataset.familyRole) draft.FamilyRole = target.value;
+  else if (target.dataset.familyRelationship) draft.FamilyRelationship = target.value;
+  else if (target.dataset.familyCategory) draft.FamilyCategories = [...document.querySelectorAll(`[data-family-category="${CSS.escape(userID)}"]:checked`)].map((input) => input.value).sort();
+  const save = target.closest("[data-family-member]")?.querySelector("[data-save-family-user]");
+  if (save) save.disabled = !familyDraftDirty(draft);
+  updateFamilyDirtyState();
+};
+$("#familyMembers").onclick = (event) => { const button = event.target.closest("[data-save-family-user]"); if (button) saveFamilyMember(button.dataset.saveFamilyUser, button); };
+$("#applyBulkCategories").onclick = () => {
+  const categories = [...$("#familyBulkCategories").querySelectorAll("input:checked")].map((input) => input.value).sort();
+  for (const userID of familyMemberSelection) { const draft = familyMemberDrafts.get(userID); if (draft) draft.FamilyCategories = categories; }
+  renderFamilyMembers();
+};
+$("#saveAllFamilyMembers").onclick = async (event) => {
+  const dirty = [...familyMemberDrafts.values()].filter(familyDraftDirty);
+  try { await withBusy(event.currentTarget, "Сохраняем…", async () => { for (const draft of dirty) await saveFamilyMember(draft.ID, null); }); announce("Все изменения сохранены"); } catch (error) { $("#familyAdminError").textContent = error.message; }
+};
+async function closeFamilyAdministration() {
+  if ([...familyMemberDrafts.values()].some(familyDraftDirty) && !await confirmAction({ title: "Закрыть без сохранения?", message: "Несохранённые изменения будут потеряны.", confirmLabel: "Закрыть", destructive: true })) return;
+  $("#familyAdminDialog").close();
+}
+$("#closeFamilyAdmin").onclick = closeFamilyAdministration;
+$("#familyAdminDialog").oncancel = (event) => { event.preventDefault(); closeFamilyAdministration(); };
 $("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; $("#familyInviteDialog").showModal(); };
 $("#closeFamilyInvite").onclick = () => $("#familyInviteDialog").close();
 $("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено", permissions: ["send_messages", "edit_own_messages", "delete_own_messages", "create_groups"] }) }); $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };
 $("#copyFamilyInviteToken").onclick = async () => { const code = $("#familyInviteTokenText").textContent.replace("Одноразовый код: ", ""); if (!code) return; try { await navigator.clipboard.writeText(code); $("#copyFamilyInviteToken").textContent = "Скопировано"; setTimeout(() => { $("#copyFamilyInviteToken").textContent = "Скопировать"; }, 1500); } catch { $("#familyInviteError").textContent = "Не удалось скопировать код. Скопируйте его вручную."; } };
-$("#createFamily").onclick = async (e) => {
+$("#closeFamily").onclick = () => $("#familyDialog").close();
+$("#familyForm").onsubmit = async (e) => {
   e.preventDefault();
   const title = $("#familyTitle").value.trim();
   if (!title) return;
-  const family = await request("/families", { method: "POST", body: JSON.stringify({ title, parentFamilyId: $("#parentFamily").value }) });
-  $("#familyDialog").close();
-  $("#familyTitle").value = "";
-  families.push(family);
-  activeFamilyID = family.id;
-  location.reload();
+  try {
+    const family = await withBusy(e.submitter, "Создаём…", async () => request("/families", { method: "POST", body: JSON.stringify({ title, parentFamilyId: $("#parentFamily").value }) }));
+    $("#familyDialog").close(); $("#familyTitle").value = ""; families.push(family); activeFamilyID = family.id; localStorage.setItem(activeFamilyKey, family.id); announce("Семья создана"); location.reload();
+  } catch (error) { $("#familyError").textContent = error.message; }
 };
 $("#logout").onclick = async () => {
   await request("/auth/logout", { method: "POST" });
   location.reload();
 };
 $("#manageMembers").onclick = openMembers;
-$("#deleteGroup").onclick = async()=>{if(!active||!confirm("Архивировать группу? Она исчезнет из списка, но сообщения и файлы сохранятся."))return;try{await request(`/conversations/${active}`,{method:"DELETE"});active=null;await loadConversations()}catch(e){alert(e.message)}};
+$("#deleteGroup").onclick = async () => {
+  if (!active || !await confirmAction({ title: "Архивировать группу?", message: "Группа исчезнет из списка, но сообщения и файлы сохранятся.", confirmLabel: "Архивировать", destructive: true })) return;
+  try { await request(`/conversations/${active}`, { method: "DELETE" }); active = null; await loadConversations(); announce("Группа архивирована"); } catch (error) { announce(error.message, "error"); }
+};
 $("#renameConversation").onclick = () => {
   const conversation = conversations.find((item) => item.id === active);
   if (!conversation) return;
@@ -588,19 +750,16 @@ $("#addMember").onclick = async (e) => {
     $("#memberError").textContent = e.message;
   }
 };
-$("#newGroup").onclick = () => $("#groupDialog").showModal();
-$("#createGroup").onclick = async (e) => {
+$("#newGroup").onclick = () => { $("#groupError").textContent = ""; $("#groupDialog").showModal(); };
+$("#closeGroup").onclick = () => $("#groupDialog").close();
+$("#groupForm").onsubmit = async (e) => {
   e.preventDefault();
   const title = $("#groupTitle").value.trim();
   if (!title) return;
-  await request("/conversations", {
-    method: "POST",
-    body: JSON.stringify({ title, memberIds: [], familyId: activeFamilyID }),
-  });
-  $("#groupDialog").close();
-  $("#groupTitle").value = "";
-  active = null;
-  loadConversations();
+  try {
+    await withBusy(e.submitter, "Создаём…", async () => request("/conversations", { method: "POST", body: JSON.stringify({ title, memberIds: [], familyId: activeFamilyID }) }));
+    $("#groupDialog").close(); $("#groupTitle").value = ""; active = null; await loadConversations(); announce("Группа создана");
+  } catch (error) { $("#groupError").textContent = error.message; }
 };
 $("#openAcceptInvite").onclick = () => {
   $("#acceptInviteError").textContent = "";
@@ -622,7 +781,7 @@ $("#registerForm").onsubmit = async (event) => {
   try {
     await request("/auth/register", { method:"POST", body:JSON.stringify({email:$("#registerEmail").value.trim(),name:$("#registerName").value.trim(),password:$("#registerPassword").value}) });
     location.reload();
-  } catch (error) { alert(error.message); }
+  } catch (error) { $("#registerError").textContent = error.message; }
 };
 
 $("#acceptInvite").onsubmit = async (event) => {
@@ -718,9 +877,7 @@ $("#composer").onsubmit = async (e) => {
     pendingFiles = [];
     renderAttachments();
     openConversation(active);
-  } catch (e) {
-    alert(e.message);
-  } finally {
+  } catch (e) { announce(e.message, "error"); } finally {
     send.disabled = false;
   }
 };
@@ -764,6 +921,12 @@ function connectEvents() {
       const event = JSON.parse(message.data);
       if (event.type === "message.created" && event.conversationId)
         await request(`/conversations/${encodeURIComponent(event.conversationId)}/delivery`, { method: "POST" }).catch(() => {});
+      if (event.type === "message.created" && event.conversationId === active)
+        $("#messageAnnouncements").textContent = "Получено новое сообщение";
+      if (event.type === "shopping.changed" && active === shoppingID) {
+        await openShopping();
+        return;
+      }
       await loadConversations();
       if (active === personalID) await openPersonal();
       else if (active && (!event.conversationId || active === event.conversationId)) await openConversation(active);
