@@ -63,5 +63,19 @@ func TestRateLimiter(t *testing.T) {
 	limiter := newRateLimiter(2, time.Minute)
 	r := httptest.NewRequest(http.MethodPost, "/login", nil)
 	r.RemoteAddr = "203.0.113.10:12345"
-	if !limiter.allow(r) || !limiter.allow(r) || limiter.allow(r) { t.Fatal("rate limiter did not enforce the limit") }
+	if !limiter.allow(r) || !limiter.allow(r) || limiter.allow(r) {
+		t.Fatal("rate limiter did not enforce the limit")
+	}
+}
+
+func TestRateLimiterUsesForwardedAddressFromLocalProxy(t *testing.T) {
+	limiter := newRateLimiter(1, time.Minute)
+	first := httptest.NewRequest(http.MethodPost, "/login", nil)
+	first.RemoteAddr = "127.0.0.1:8080"
+	first.Header.Set("X-Real-IP", "203.0.113.10")
+	second := first.Clone(first.Context())
+	second.Header.Set("X-Real-IP", "203.0.113.11")
+	if !limiter.allow(first) || !limiter.allow(second) {
+		t.Fatal("different proxied clients must use independent limits")
+	}
 }

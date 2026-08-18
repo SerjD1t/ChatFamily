@@ -19,7 +19,9 @@ type Postgres struct{ Pool *pgxpool.Pool }
 
 func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
 	poolConfig, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil { return nil, fmt.Errorf("parse database config: %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("parse database config: %w", err)
+	}
 	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = "10000"
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -50,8 +52,8 @@ func (p *Postgres) Bootstrap(ctx context.Context, admin chat.User) error {
 		admin.ID, admin.Email, admin.Name, permissions); err != nil {
 		return fmt.Errorf("bootstrap administrator: %w", err)
 	}
-	if _, err := p.Pool.Exec(ctx, `INSERT INTO conversations (id, kind, title, created_by)
-		VALUES ('family', 'family', 'Семья', $1) ON CONFLICT (id) DO NOTHING`, admin.ID); err != nil {
+	if _, err := p.Pool.Exec(ctx, `INSERT INTO conversations (id, kind, title, family_id, created_by)
+		VALUES ('family', 'family', 'Семья', 'default', $1) ON CONFLICT (id) DO NOTHING`, admin.ID); err != nil {
 		return fmt.Errorf("bootstrap family conversation: %w", err)
 	}
 	if _, err := p.Pool.Exec(ctx, `INSERT INTO conversation_members (conversation_id, user_id)

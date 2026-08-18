@@ -87,6 +87,39 @@ func headers(next http.Handler) http.Handler {
 func (a *app) health(w http.ResponseWriter, _ *http.Request) {
 	write(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+func (a *app) passwordMinLength() int {
+	if a.db == nil {
+		return 12
+	}
+	return a.db.PasswordMinLength()
+}
+func (a *app) passwordPolicy(w http.ResponseWriter, _ *http.Request) {
+	write(w, http.StatusOK, map[string]int{"minPasswordLength": a.passwordMinLength()})
+}
+func (a *app) applicationSettings(w http.ResponseWriter, r *http.Request) {
+	if !a.user(id(r)).Permissions[chat.ManageApplication] {
+		write(w, http.StatusForbidden, map[string]string{"error": "Недостаточно прав"})
+		return
+	}
+	write(w, http.StatusOK, map[string]int{"minPasswordLength": a.passwordMinLength()})
+}
+func (a *app) updateApplicationSettings(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Настройки требуют PostgreSQL"})
+		return
+	}
+	var in struct {
+		MinPasswordLength int `json:"minPasswordLength"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.db.SetPasswordMinLength(a.user(id(r)), in.MinPasswordLength); err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusOK, map[string]int{"minPasswordLength": in.MinPasswordLength})
+}
 
 func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -104,6 +137,28 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	a.setSession(w, r, userID)
 	write(w, http.StatusOK, a.user(userID))
 }
+func (a *app) register(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Регистрация требует PostgreSQL"})
+		return
+	}
+	var in struct {
+		Email    string `json:"email"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	u, err := a.db.Register(in.Email, in.Name, in.Password, a.passwordMinLength())
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	a.setSession(w, r, u.ID)
+	write(w, http.StatusCreated, u)
+}
+
 func (a *app) loginForm(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Redirect(w, r, "/?login=error", http.StatusSeeOther)
@@ -134,15 +189,45 @@ func (a *app) logout(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "family_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	w.WriteHeader(http.StatusNoContent)
 }
+func (a *app) changePassword(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Смена пароля требует PostgreSQL"})
+		return
+	}
+	var in struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	err := a.db.ChangePassword(id(r), in.CurrentPassword, in.NewPassword, a.passwordMinLength())
+	_, bootstrapPasswordMatches := a.authenticate(a.cfg.AdminEmail, in.CurrentPassword)
+	if errors.Is(err, chat.ErrForbidden) && id(r) == "admin" && bootstrapPasswordMatches {
+		err = a.db.SetPassword(id(r), in.NewPassword, a.passwordMinLength())
+	}
+	if err != nil {
+		if errors.Is(err, chat.ErrForbidden) {
+			write(w, http.StatusBadRequest, map[string]string{"error": "Текущий пароль указан неверно"})
+			return
+		}
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 func (a *app) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
 		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Приглашения требуют PostgreSQL"})
 		return
 	}
 	var in struct {
-		Email       string            `json:"email"`
-		Permissions []chat.Permission `json:"permissions"`
-		ExpiresAt   *time.Time        `json:"expiresAt"`
+		Email        string            `json:"email"`
+		Permissions  []chat.Permission `json:"permissions"`
+		ExpiresAt    *time.Time        `json:"expiresAt"`
+		FamilyRole   chat.FamilyRole   `json:"familyRole"`
+		Relationship string            `json:"relationship"`
+		FamilyID     string            `json:"familyId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -151,12 +236,30 @@ func (a *app) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if in.ExpiresAt != nil {
 		expiresAt = *in.ExpiresAt
 	}
-	token, err := a.db.CreateInvitation(a.user(id(r)), in.Email, in.Permissions, expiresAt)
+	if in.FamilyID == "" {
+		in.FamilyID, _ = a.db.DefaultFamilyID(id(r))
+	}
+	if in.FamilyID == "" {
+		write(w, http.StatusBadRequest, map[string]string{"error": "Не выбрана семья"})
+		return
+	}
+	if in.FamilyRole == "" {
+		in.FamilyRole = chat.FamilyMember
+	}
+	if in.Relationship == "" {
+		in.Relationship = "Неопределено"
+	}
+	token, err := a.db.CreateInvitation(a.user(id(r)), in.FamilyID, in.Email, in.Permissions, in.FamilyRole, in.Relationship, expiresAt)
 	if err != nil {
 		domainError(w, err)
 		return
 	}
-	write(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expiresAt.UTC()})
+	mailSent := true
+	if err := sendInvitationMail(a.cfg, in.Email, token, "семью", string(in.FamilyRole), in.Relationship); err != nil {
+		slog.Warn("не удалось отправить приглашение", "error", err)
+		mailSent = false
+	}
+	write(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expiresAt.UTC(), "mailSent": mailSent})
 }
 func (a *app) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
@@ -171,12 +274,42 @@ func (a *app) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	user, err := a.db.AcceptInvitation(in.Token, in.Name, in.Password)
+	user, err := a.db.AcceptInvitation(in.Token, in.Name, in.Password, a.passwordMinLength())
 	if err != nil {
 		domainError(w, err)
 		return
 	}
 	write(w, http.StatusCreated, user)
+}
+
+func (a *app) joinInvitation(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Приглашения требуют PostgreSQL"})
+		return
+	}
+	if err := a.db.AcceptInvitationForUser(r.PathValue("token"), id(r)); err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) joinInvitationByCode(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Приглашения требуют PostgreSQL"})
+		return
+	}
+	var in struct {
+		Token string `json:"token"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.db.AcceptInvitationForUser(strings.TrimSpace(in.Token), id(r)); err != nil {
+		domainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) uploadAvatar(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +445,40 @@ func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, id)))
 	}
 }
-func (a *app) user(id string) chat.User                  { u, _ := a.chat.User(id); return u }
+func (a *app) user(id string) chat.User { u, _ := a.chat.User(id); return u }
+func (a *app) families(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Семьи требуют PostgreSQL"})
+		return
+	}
+	families, err := a.db.Families(id(r))
+	if err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": "Не удалось получить семьи"})
+		return
+	}
+	write(w, http.StatusOK, families)
+}
+
+func (a *app) createFamily(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Семьи требуют PostgreSQL"})
+		return
+	}
+	var in struct {
+		Title          string `json:"title"`
+		ParentFamilyID string `json:"parentFamilyId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	family, err := a.db.CreateFamily(a.user(id(r)), in.Title, in.ParentFamilyID)
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusCreated, family)
+}
+
 func id(r *http.Request) string                          { return r.Context().Value(sessionKey{}).(string) }
 func (a *app) me(w http.ResponseWriter, r *http.Request) { write(w, 200, a.user(id(r))) }
 func (a *app) pushPublicKey(w http.ResponseWriter, r *http.Request) {
@@ -371,7 +537,7 @@ func (a *app) contacts(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusServiceUnavailable, map[string]string{"error": "Список участников требует PostgreSQL"})
 		return
 	}
-	contacts, err := a.db.Contacts(a.user(id(r)))
+	contacts, err := a.db.ContactsInFamily(a.user(id(r)), r.URL.Query().Get("familyId"))
 	if err != nil {
 		domainError(w, err)
 		return
@@ -432,11 +598,25 @@ func (a *app) createGroup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Title     string   `json:"title"`
 		MemberIDs []string `json:"memberIds"`
+		FamilyID  string   `json:"familyId"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	c, err := a.chat.CreateGroup(a.user(id(r)), in.Title, in.MemberIDs)
+	var c chat.Conversation
+	var err error
+	if a.db != nil && in.FamilyID == "" {
+		in.FamilyID, _ = a.db.DefaultFamilyID(id(r))
+	}
+	if a.db != nil && in.FamilyID == "" {
+		write(w, http.StatusBadRequest, map[string]string{"error": "Не выбрана семья"})
+		return
+	}
+	if a.db != nil {
+		c, err = a.db.CreateGroupInFamily(a.user(id(r)), in.FamilyID, in.Title, in.MemberIDs)
+	} else {
+		c, err = a.chat.CreateGroup(a.user(id(r)), in.Title, in.MemberIDs)
+	}
 	if err != nil {
 		domainError(w, err)
 		return

@@ -119,7 +119,7 @@ func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted
 	return user, nil
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),'Личный диалог'),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)) FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 GROUP BY c.id,c.kind,c.title,m.last_read_at ORDER BY c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),'Личный диалог'),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 AND c.archived_at IS NULL GROUP BY c.id,c.kind,c.title,c.family_id,m.last_read_at ORDER BY c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -127,7 +127,7 @@ func (p *Postgres) Conversations(userID string) []chat.Conversation {
 	var out []chat.Conversation
 	for rows.Next() {
 		var c chat.Conversation
-		if rows.Scan(&c.ID, &c.Kind, &c.Title, &c.PeerUserID, &c.UnreadCount) == nil {
+		if rows.Scan(&c.ID, &c.Kind, &c.Title, &c.PeerUserID, &c.UnreadCount, &c.FamilyID) == nil {
 			out = append(out, c)
 		}
 	}
@@ -292,10 +292,11 @@ func (p *Postgres) DirectConversation(a chat.User, other string) (chat.Conversat
 	return chat.Conversation{ID: conversationID, Kind: chat.Direct, PeerUserID: other}, nil
 }
 func (p *Postgres) AddMember(a chat.User, cid, uid string) error {
-	if !a.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, a.ID) {
+	familyID, ok := p.FamilyForConversation(cid)
+	if !ok || !p.FamilyAdmin(a.ID, familyID) {
 		return chat.ErrForbidden
 	}
-	result, e := p.Pool.Exec(context.Background(), `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,id FROM users WHERE id=$2 ON CONFLICT DO NOTHING`, cid, uid)
+	result, e := p.Pool.Exec(context.Background(), `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,user_id FROM family_members WHERE family_id=$2 AND user_id=$3 ON CONFLICT DO NOTHING`, cid, familyID, uid)
 	if e != nil {
 		return e
 	}
@@ -307,39 +308,72 @@ func (p *Postgres) AddMember(a chat.User, cid, uid string) error {
 	return nil
 }
 func (p *Postgres) DeleteGroup(actor chat.User, conversationID string) error {
-	if !actor.Permissions[chat.ManageGroupSettings] || !p.groupMember(conversationID, actor.ID) {
+	familyID, ok := p.FamilyForConversation(conversationID)
+	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
 		return chat.ErrForbidden
 	}
-	ctx := context.Background()
-	tx, err := p.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
 	var kind string
-	if err = tx.QueryRow(ctx, `SELECT kind FROM conversations WHERE id=$1`, conversationID).Scan(&kind); err != nil {
+	if err := p.Pool.QueryRow(context.Background(), `SELECT kind FROM conversations WHERE id=$1 AND archived_at IS NULL`, conversationID).Scan(&kind); err != nil {
 		return chat.ErrNotFound
 	}
 	if kind != "group" {
 		return chat.ErrForbidden
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=$1)`, conversationID); err != nil {
+	_, err := p.Pool.Exec(context.Background(), `UPDATE conversations SET archived_at=now() WHERE id=$1`, conversationID)
+	return err
+}
+
+func (p *Postgres) RenameConversation(actor chat.User, conversationID, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" || len([]rune(title)) > 120 {
+		return chat.ErrInvalid
+	}
+	familyID, ok := p.FamilyForConversation(conversationID)
+	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
+		return chat.ErrForbidden
+	}
+	result, err := p.Pool.Exec(context.Background(), `UPDATE conversations SET title=$1 WHERE id=$2 AND archived_at IS NULL`, title, conversationID)
+	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM messages WHERE conversation_id=$1`, conversationID); err != nil {
+	if result.RowsAffected() == 0 {
+		return chat.ErrNotFound
+	}
+	if _, err = p.Pool.Exec(context.Background(), `UPDATE families SET title=$1 WHERE id=$2 AND EXISTS (SELECT 1 FROM conversations WHERE id=$3 AND kind='family')`, title, familyID, conversationID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM conversations WHERE id=$1`, conversationID); err != nil {
-		return err
+	return nil
+}
+
+func (p *Postgres) SearchMessages(actor chat.User, conversationID, query string) ([]chat.Message, error) {
+	if !p.member(conversationID, actor.ID) {
+		return nil, chat.ErrForbidden
 	}
-	return tx.Commit(ctx)
+	query = strings.TrimSpace(query)
+	if len([]rune(query)) < 2 || len([]rune(query)) > 120 {
+		return nil, chat.ErrInvalid
+	}
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id=$1 AND c.archived_at IS NULL AND m.deleted_at IS NULL AND m.body ILIKE '%' || $2 || '%' ORDER BY m.created_at DESC,m.id DESC LIMIT 50`, conversationID, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []chat.Message{}
+	for rows.Next() {
+		var m chat.Message
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, m)
+	}
+	return result, rows.Err()
 }
 
 func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	if !p.member(cid, actor.ID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions,COALESCE(u.avatar_key,'') FROM users u JOIN conversation_members m ON m.user_id=u.id WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
+	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions,COALESCE(u.avatar_key,''),COALESCE(fm.relationship,'Неопределено'),COALESCE(fm.role,'member'),COALESCE((SELECT array_agg(category ORDER BY category) FROM family_member_categories c WHERE c.family_id=fm.family_id AND c.user_id=u.id),ARRAY[]::text[]) FROM users u JOIN conversation_members m ON m.user_id=u.id LEFT JOIN family_members fm ON fm.user_id=u.id AND fm.family_id=(SELECT family_id FROM conversations WHERE id=$1) WHERE m.conversation_id=$1 ORDER BY u.display_name,u.id`, cid)
 	if err != nil {
 		return nil, err
 	}
@@ -348,10 +382,12 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	for rows.Next() {
 		var u chat.User
 		var permissions []string
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL); err != nil {
+		var categories []string
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL, &u.FamilyRelationship, &u.FamilyRole, &categories); err != nil {
 			return nil, err
 		}
 		u.Permissions = permissionMap(permissions)
+		u.FamilyCategories = toFamilyCategories(categories)
 		if u.AvatarURL != "" {
 			u.AvatarURL = avatarURL(u.ID)
 		}
@@ -361,7 +397,8 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 }
 
 func (p *Postgres) RemoveMember(actor chat.User, cid, uid string) error {
-	if !actor.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, actor.ID) {
+	familyID, ok := p.FamilyForConversation(cid)
+	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
 		return chat.ErrForbidden
 	}
 	if uid == actor.ID {
@@ -378,10 +415,11 @@ func (p *Postgres) RemoveMember(actor chat.User, cid, uid string) error {
 }
 
 func (p *Postgres) MemberCandidates(actor chat.User, cid string) ([]chat.User, error) {
-	if !actor.Permissions[chat.ManageGroupMembers] || !p.groupMember(cid, actor.ID) {
+	familyID, ok := p.FamilyForConversation(cid)
+	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
 		return nil, chat.ErrForbidden
 	}
-	return p.Users(chat.User{Permissions: map[chat.Permission]bool{chat.ManageUsers: true}})
+	return p.FamilyUsers(familyID)
 }
 
 func (p *Postgres) groupMember(cid, uid string) bool {

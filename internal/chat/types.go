@@ -5,7 +5,9 @@ import "time"
 type Permission string
 
 const (
-	ManageUsers         Permission = "manage_users"
+	// ManageApplication is a global platform role. Family administration is deliberately stored in family_members.
+	ManageApplication   Permission = "manage_application"
+	ManageUsers         Permission = ManageApplication // compatibility name for Go callers
 	CreateGroups        Permission = "create_groups"
 	ManageGroupMembers  Permission = "manage_group_members"
 	ManageGroupSettings Permission = "manage_group_settings"
@@ -15,9 +17,37 @@ const (
 )
 
 type User struct {
-	ID, Email, Name string
-	AvatarURL       string `json:"avatarUrl,omitempty"`
-	Permissions     map[Permission]bool
+	ID, Email, Name    string
+	AvatarURL          string `json:"avatarUrl,omitempty"`
+	Permissions        map[Permission]bool
+	FamilyRelationship string           `json:"familyRelationship,omitempty"`
+	FamilyRole         FamilyRole       `json:"familyRole,omitempty"`
+	FamilyCategories   []FamilyCategory `json:"familyCategories,omitempty"`
+}
+type FamilyRole string
+
+const (
+	FamilyOwner  FamilyRole = "owner"
+	FamilyAdmin  FamilyRole = "admin"
+	FamilyMember FamilyRole = "member"
+)
+
+// FamilyCategory is a fixed, functional classification of a family member.
+// It is deliberately separate from FamilyRole, which controls administration.
+type FamilyCategory string
+
+const (
+	FamilyChild       FamilyCategory = "child"
+	FamilyParent      FamilyCategory = "parent"
+	FamilyGrandparent FamilyCategory = "grandparent"
+	FamilyGuardian    FamilyCategory = "guardian"
+	FamilyRelative    FamilyCategory = "relative"
+)
+
+type FamilyInfo struct {
+	ID    string     `json:"id"`
+	Title string     `json:"title"`
+	Role  FamilyRole `json:"role"`
 }
 type ConversationKind string
 
@@ -33,6 +63,7 @@ type Conversation struct {
 	Title       string           `json:"title"`
 	PeerUserID  string           `json:"peerUserId,omitempty"`
 	UnreadCount int64            `json:"unreadCount"`
+	FamilyID    string           `json:"familyId,omitempty"`
 	Members     map[string]bool  `json:"-"`
 }
 type Attachment struct {

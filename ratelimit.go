@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,10 +23,7 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	return &rateLimiter{windows: make(map[string]rateWindow), limit: limit, window: window}
 }
 func (l *rateLimiter) allow(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
+	host := clientAddress(r)
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -40,6 +38,26 @@ func (l *rateLimiter) allow(r *http.Request) bool {
 	w.count++
 	l.windows[host] = w
 	return true
+}
+
+// clientAddress accepts proxy headers only from a local reverse proxy. This
+// keeps external clients from choosing their own rate-limit bucket.
+func clientAddress(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return host
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); net.ParseIP(forwarded) != nil {
+		return forwarded
+	}
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(realIP) != nil {
+		return realIP
+	}
+	return host
 }
 func (a *app) limited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
