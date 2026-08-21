@@ -1,0 +1,11 @@
+.git
+.env
+pass
+ssh
+data
+uploads
+*.log
+*.exe
+.go-cache
+.go-mod-cache
+.test-tmp
