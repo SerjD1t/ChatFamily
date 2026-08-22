@@ -543,15 +543,20 @@ function keyBytes(key) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 async function configurePush() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
   const button = $("#pushSettings"),
     registration = await navigator.serviceWorker.register("/sw.js");
   let subscription = await registration.pushManager.getSubscription();
+  const updateButton = () => {
+    button.textContent = subscription
+      ? "Уведомления: вкл."
+      : "Включить уведомления";
+  };
   button.hidden = false;
-  button.textContent = subscription
-    ? "Уведомления: вкл."
-    : "Включить уведомления";
+  updateButton();
   button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = subscription ? "Отключаем…" : "Настраиваем…";
     try {
       if (subscription) {
         await request("/push/subscriptions", {
@@ -560,12 +565,14 @@ async function configurePush() {
         });
         await subscription.unsubscribe();
         subscription = null;
-        button.textContent = "Включить уведомления";
+        announce("Уведомления отключены");
         return;
       }
+      const key = await request("/push/public-key");
+      if (Notification.permission === "denied")
+        throw Error("Уведомления заблокированы в настройках браузера для этого сайта");
       if ((await Notification.requestPermission()) !== "granted")
         throw Error("Разрешение на уведомления не получено");
-      const key = await request("/push/public-key");
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: keyBytes(key.publicKey),
@@ -574,8 +581,13 @@ async function configurePush() {
         method: "POST",
         body: JSON.stringify(subscription),
       });
-      button.textContent = "Уведомления: вкл.";
-    } catch (e) { announce(e.message, "error"); }
+      announce("Уведомления включены");
+    } catch (e) {
+      announce(e.message, "error");
+    } finally {
+      button.disabled = false;
+      updateButton();
+    }
   };
 }
 $("#closeProfile").onclick = () => $("#profileDialog").close();
