@@ -21,16 +21,17 @@ func (s *Service) AddUser(actor, user User) error {
 }
 
 func (s *Service) DirectConversation(actor User, otherID string) (Conversation, error) {
-	if actor.ID == otherID {
-		return Conversation{}, ErrInvalid
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, found := s.users[otherID]; !found {
 		return Conversation{}, ErrNotFound
 	}
 	for _, c := range s.conversations {
-		if c.Kind == Direct && len(c.Members) == 2 && c.Members[actor.ID] && c.Members[otherID] {
+		expectedMembers := 2
+		if actor.ID == otherID {
+			expectedMembers = 1
+		}
+		if c.Kind == Direct && len(c.Members) == expectedMembers && c.Members[actor.ID] && c.Members[otherID] {
 			return *c, nil
 		}
 	}

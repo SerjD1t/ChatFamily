@@ -150,7 +150,7 @@ func (p *Postgres) DefaultFamilyID(userID string) (string, error) {
 	return familyID, nil
 }
 func (p *Postgres) ContactsInFamily(actor chat.User, familyID string) ([]chat.User, error) {
-	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.display_name,COALESCE(u.avatar_key,''),COALESCE(fm.relationship,'Неопределено') FROM users u LEFT JOIN family_members fm ON fm.user_id=u.id AND fm.family_id=$2 WHERE u.id<>$1 ORDER BY u.display_name,u.id`, actor.ID, familyID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.display_name,COALESCE(u.avatar_key,''),COALESCE(fm.relationship,'Неопределено') FROM users u LEFT JOIN family_members fm ON fm.user_id=u.id AND fm.family_id=$2 ORDER BY (u.id=$1) DESC,u.display_name,u.id`, actor.ID, familyID)
 	if err != nil {
 		return nil, err
 	}

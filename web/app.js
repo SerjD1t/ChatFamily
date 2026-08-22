@@ -187,9 +187,10 @@ async function openPersonal() {
     $("#messages").innerHTML = contacts.length
       ? `<div class="personalList">${contacts
           .map((u) => {
-            const chat = chats.find((c) => c.title === u.Name),
-              unread = chat?.unreadCount || 0;
-            return `<button class="personalContact" data-user-id="${safe(u.ID)}"><span>${safe(u.Name)} <small class="muted">${safe(u.familyRelationship || "Неопределено")}</small></span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
+            const chat = chats.find((c) => c.peerUserId === u.ID),
+              unread = chat?.unreadCount || 0,
+              isSelf = u.ID === currentUser.ID;
+            return `<button class="personalContact" data-user-id="${safe(u.ID)}"><span>${safe(u.Name)}${isSelf ? ' <small class="muted">Вы</small>' : ` <small class="muted">${safe(u.familyRelationship || "Неопределено")}</small>`}</span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
           })
           .join("")}</div>`
       : '<p class="muted">Других участников пока нет.</p>';

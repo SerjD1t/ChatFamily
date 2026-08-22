@@ -45,6 +45,17 @@ func TestCreateUserAndDirectConversationAPI(t *testing.T) {
 	}
 }
 
+func TestCreateSelfDirectConversationAPI(t *testing.T) {
+	a := testApp()
+	direct := httptest.NewRecorder()
+	r := authenticatedRequest(t, a, http.MethodPost, "/api/v1/users/admin/direct-conversation", "")
+	r.SetPathValue("userID", "admin")
+	a.auth(a.directConversation).ServeHTTP(direct, r)
+	if direct.Code != http.StatusOK {
+		t.Fatalf("self direct conversation status = %d, want %d", direct.Code, http.StatusOK)
+	}
+}
+
 func TestOnlyGroupAcceptsNewMembers(t *testing.T) {
 	a := testApp()
 	if err := a.chat.AddUser(a.user("admin"), chat.User{ID: "member", Email: "member@example.test", Name: "Участник"}); err != nil {

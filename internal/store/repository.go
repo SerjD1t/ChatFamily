@@ -119,7 +119,7 @@ func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted
 	return user, nil
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),'Личный диалог'),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),''),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 AND c.archived_at IS NULL GROUP BY c.id,c.kind,c.title,c.family_id,m.last_read_at ORDER BY c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN (SELECT display_name FROM users WHERE id=$1) ELSE 'Личный диалог' END),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN $1 ELSE '' END),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 AND c.archived_at IS NULL GROUP BY c.id,c.kind,c.title,c.family_id,m.last_read_at ORDER BY c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -261,9 +261,6 @@ func (p *Postgres) AddUser(a, u chat.User) error {
 	return e
 }
 func (p *Postgres) DirectConversation(a chat.User, other string) (chat.Conversation, error) {
-	if a.ID == other {
-		return chat.Conversation{}, chat.ErrInvalid
-	}
 	if _, ok := p.User(other); !ok {
 		return chat.Conversation{}, chat.ErrNotFound
 	}
