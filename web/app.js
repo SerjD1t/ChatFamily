@@ -1,5 +1,5 @@
 import { api, $, request, safe } from "./api.js";
-import { activeFamily, canManageFamily, familyConversations } from "./family-context.js";
+import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
 const personalID = "__personal__",
   groupsID = "__groups__",
@@ -18,6 +18,7 @@ let conversations = [],
 let editingApplicationUser = null;
 let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false;
 let userPreferences = { locale: "ru", colorScheme: "system" };
+let shoppingCounter = { completedToday: 0, total: 0 };
 const familyCategoryDefinitions = [
   ["child", "Ребёнок"],
   ["parent", "Родитель"],
@@ -89,7 +90,7 @@ function renderConversations() {
   const sectionButton = (id, title, icon, unread = 0) => `<button class="conversation sectionLink ${active === id ? "selected" : ""}" data-id="${id}"><span class="conversationLabel"><span class="conversationIcon" aria-hidden="true">${safe(icon)}</span><span>${safe(title)}</span></span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
   $("#conversations").innerHTML =
     sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, id === shoppingID ? `${t(title)} (${shoppingCounter.completedToday}/${shoppingCounter.total})` : t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.map((c) => button(c.id, c.title, c.unreadCount)).join("") +
     button(groupsID, t("allChats"), groupsUnread);
   $("#conversations").onclick = (e) => {
@@ -98,12 +99,14 @@ function renderConversations() {
   };
 }
 async function loadConversations() {
-  const [list, favorites] = await Promise.all([
+  const [list, favorites, shoppingItems] = await Promise.all([
     request("/conversations"),
     request("/favorites"),
+    activeFamilyID ? request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`).catch(() => []) : [],
   ]);
   conversations = list;
   favoriteIDs = new Set(favorites);
+  shoppingCounter = summarizeShopping(shoppingItems);
   renderConversations();
   if (!active) {
     const saved = localStorage.getItem(activeConversationKey);
@@ -304,6 +307,8 @@ async function openShopping() {
   $("#messages").innerHTML = '<p class="muted">Загрузка покупок…</p>';
   try {
     const items = await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`);
+    shoppingCounter = summarizeShopping(items);
+    renderConversations();
     const pending = items.filter((item) => !item.completedAt), done = items.filter((item) => item.completedAt);
     const renderItem = (item) => `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label>${(item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID)) ? `<button class="secondary" data-shopping-delete="${safe(item.id)}" aria-label="Удалить покупку">×</button>` : ""}</li>`;
     $("#messages").innerHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="visuallyHidden" for="shoppingTitle">Добавить покупку</label><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку"><button>Добавить</button></form><h3>Купить</h3><ul>${pending.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul>${done.length ? `<details><summary>Куплено: ${done.length}</summary><ul>${done.map(renderItem).join("")}</ul></details>` : ""}</section>`;
