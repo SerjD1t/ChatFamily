@@ -17,12 +17,13 @@ export function canManageFamily(families, familyID) {
 
 export function summarizeShopping(items, now = new Date()) {
   const source = Array.isArray(items) ? items : [];
-  const completedToday = source.filter((item) => {
-    if (!item.completedAt) return false;
-    const completed = new Date(item.completedAt);
-    return completed.getFullYear() === now.getFullYear() &&
-      completed.getMonth() === now.getMonth() &&
-      completed.getDate() === now.getDate();
+  const pending = source.filter((item) => !item.completedAt);
+  const plannedToday = pending.filter((item) => {
+    if (!item.plannedDate) return false;
+    const planned = new Date(item.plannedDate);
+    return planned.getUTCFullYear() === now.getFullYear() &&
+      planned.getUTCMonth() === now.getMonth() &&
+      planned.getUTCDate() === now.getDate();
   }).length;
-  return { completedToday, total: source.length };
+  return { plannedToday, total: pending.length };
 }

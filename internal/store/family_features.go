@@ -34,7 +34,7 @@ func (p *Postgres) ShoppingItems(actor chat.User, familyID string) ([]chat.Shopp
 	if !p.FamilyMember(actor.ID, familyID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT id,family_id,title,completed_at,created_by,created_at FROM shopping_items WHERE family_id=$1 ORDER BY completed_at NULLS FIRST,created_at DESC,id DESC`, familyID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT id,family_id,title,planned_date,completed_at,created_by,created_at FROM shopping_items WHERE family_id=$1 ORDER BY completed_at NULLS FIRST,planned_date NULLS LAST,created_at DESC,id DESC`, familyID)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (p *Postgres) ShoppingItems(actor chat.User, familyID string) ([]chat.Shopp
 	items := []chat.ShoppingItem{}
 	for rows.Next() {
 		var item chat.ShoppingItem
-		if err := rows.Scan(&item.ID, &item.FamilyID, &item.Title, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -50,7 +50,7 @@ func (p *Postgres) ShoppingItems(actor chat.User, familyID string) ([]chat.Shopp
 	return items, rows.Err()
 }
 
-func (p *Postgres) AddShoppingItem(actor chat.User, familyID, title string) (chat.ShoppingItem, error) {
+func (p *Postgres) AddShoppingItem(actor chat.User, familyID, title string, plannedDate time.Time) (chat.ShoppingItem, error) {
 	if !p.FamilyMember(actor.ID, familyID) {
 		return chat.ShoppingItem{}, chat.ErrForbidden
 	}
@@ -58,8 +58,8 @@ func (p *Postgres) AddShoppingItem(actor chat.User, familyID, title string) (cha
 	if title == "" || len([]rune(title)) > 160 {
 		return chat.ShoppingItem{}, chat.ErrInvalid
 	}
-	item := chat.ShoppingItem{ID: id(), FamilyID: familyID, Title: title, CreatedBy: actor.ID, CreatedAt: time.Now().UTC()}
-	_, err := p.Pool.Exec(context.Background(), `INSERT INTO shopping_items(id,family_id,title,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$5)`, item.ID, item.FamilyID, item.Title, item.CreatedBy, item.CreatedAt)
+	item := chat.ShoppingItem{ID: id(), FamilyID: familyID, Title: title, PlannedDate: &plannedDate, CreatedBy: actor.ID, CreatedAt: time.Now().UTC()}
+	_, err := p.Pool.Exec(context.Background(), `INSERT INTO shopping_items(id,family_id,title,planned_date,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6)`, item.ID, item.FamilyID, item.Title, item.PlannedDate, item.CreatedBy, item.CreatedAt)
 	return item, err
 }
 
@@ -73,7 +73,19 @@ func (p *Postgres) ToggleShoppingItem(actor chat.User, familyID, itemID string, 
 		completedAt = &now
 	}
 	var item chat.ShoppingItem
-	err := p.Pool.QueryRow(context.Background(), `UPDATE shopping_items SET completed_at=$1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING id,family_id,title,completed_at,created_by,created_at`, completedAt, itemID, familyID).Scan(&item.ID, &item.FamilyID, &item.Title, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt)
+	err := p.Pool.QueryRow(context.Background(), `UPDATE shopping_items SET completed_at=$1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING id,family_id,title,planned_date,completed_at,created_by,created_at`, completedAt, itemID, familyID).Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return chat.ShoppingItem{}, chat.ErrNotFound
+	}
+	return item, err
+}
+
+func (p *Postgres) SetShoppingPlannedDate(actor chat.User, familyID, itemID string, plannedDate time.Time) (chat.ShoppingItem, error) {
+	if !p.FamilyMember(actor.ID, familyID) {
+		return chat.ShoppingItem{}, chat.ErrForbidden
+	}
+	var item chat.ShoppingItem
+	err := p.Pool.QueryRow(context.Background(), `UPDATE shopping_items SET planned_date=$1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING id,family_id,title,planned_date,completed_at,created_by,created_at`, plannedDate, itemID, familyID).Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return chat.ShoppingItem{}, chat.ErrNotFound
 	}

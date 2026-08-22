@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"familychat/internal/chat"
 )
@@ -56,12 +57,18 @@ func (a *app) addShoppingItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Title string `json:"title"`
+		Title       string `json:"title"`
+		PlannedDate string `json:"plannedDate"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	item, err := a.db.AddShoppingItem(a.user(id(r)), r.PathValue("familyID"), strings.TrimSpace(in.Title))
+	plannedDate, err := parseShoppingDate(in.PlannedDate)
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	item, err := a.db.AddShoppingItem(a.user(id(r)), r.PathValue("familyID"), strings.TrimSpace(in.Title), plannedDate)
 	if err != nil {
 		domainError(w, err)
 		return
@@ -76,18 +83,41 @@ func (a *app) toggleShoppingItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Completed bool `json:"completed"`
+		Completed   *bool   `json:"completed"`
+		PlannedDate *string `json:"plannedDate"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	item, err := a.db.ToggleShoppingItem(a.user(id(r)), r.PathValue("familyID"), r.PathValue("itemID"), in.Completed)
+	if (in.Completed == nil) == (in.PlannedDate == nil) {
+		domainError(w, chat.ErrInvalid)
+		return
+	}
+	var item chat.ShoppingItem
+	var err error
+	if in.PlannedDate != nil {
+		var plannedDate time.Time
+		plannedDate, err = parseShoppingDate(*in.PlannedDate)
+		if err == nil {
+			item, err = a.db.SetShoppingPlannedDate(a.user(id(r)), r.PathValue("familyID"), r.PathValue("itemID"), plannedDate)
+		}
+	} else {
+		item, err = a.db.ToggleShoppingItem(a.user(id(r)), r.PathValue("familyID"), r.PathValue("itemID"), *in.Completed)
+	}
 	if err != nil {
 		domainError(w, err)
 		return
 	}
 	write(w, http.StatusOK, item)
 	a.hub.publish(realtimeEvent{Type: "shopping.changed"})
+}
+
+func parseShoppingDate(value string) (time.Time, error) {
+	date, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, chat.ErrInvalid
+	}
+	return date, nil
 }
 
 func (a *app) deleteShoppingItem(w http.ResponseWriter, r *http.Request) {

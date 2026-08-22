@@ -59,6 +59,7 @@ type ShoppingItem struct {
 	ID          string     `json:"id"`
 	FamilyID    string     `json:"familyId"`
 	Title       string     `json:"title"`
+	PlannedDate *time.Time `json:"plannedDate,omitempty"`
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 	CreatedBy   string     `json:"createdBy"`
 	CreatedAt   time.Time  `json:"createdAt"`
