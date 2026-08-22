@@ -1,6 +1,9 @@
 services:
   caddy:
     image: caddy:2.10-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     depends_on:
       - app
     ports:
