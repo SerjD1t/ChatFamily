@@ -25,9 +25,6 @@ func (p *Postgres) UpdateFamilyMember(actor chat.User, familyID, userID string, 
 	if currentRole != role && !p.FamilyOwner(actor.ID, familyID) {
 		return chat.ErrForbidden
 	}
-	if categories != nil && !p.FamilyOwner(actor.ID, familyID) {
-		return chat.ErrForbidden
-	}
 	if currentRole == chat.FamilyOwner && role != chat.FamilyOwner {
 		var owners int
 		if err := p.Pool.QueryRow(context.Background(), `SELECT count(*) FROM family_members WHERE family_id=$1 AND role='owner'`, familyID).Scan(&owners); err != nil {

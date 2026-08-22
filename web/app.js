@@ -16,7 +16,7 @@ let conversations = [],
   families = [],
   activeFamilyID = "";
 let editingApplicationUser = null;
-let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false;
+let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false, familyManagerCanEditCategories = false;
 let userPreferences = { locale: "ru", colorScheme: "system" };
 let shoppingCounter = { plannedToday: 0, total: 0 };
 const familyCategoryDefinitions = [
@@ -484,11 +484,12 @@ async function openFamilyManagement() {
     const members = await request(`/conversations/${encodeURIComponent(familyConversation.id)}/members`);
     const family = activeFamily(families, activeFamilyID);
     familyManagerIsOwner = family?.role === "owner";
+    familyManagerCanEditCategories = family?.role === "owner" || family?.role === "admin";
     familyMemberSelection = new Set();
     familyMemberDrafts = new Map(members.map((user) => [user.ID, { ...user, familyCategories: [...(user.familyCategories || [])].sort(), original: JSON.stringify({ role: user.familyRole, relationship: user.familyRelationship || "Неопределено", categories: [...(user.familyCategories || [])].sort() }) }]));
     $("#familyAdminTitle").textContent = `Семья: ${family?.title || ""}`;
     $("#familyAdminError").textContent = "";
-    $("#familyBulkEdit").hidden = !familyManagerIsOwner;
+    $("#familyBulkEdit").hidden = !familyManagerCanEditCategories;
     $("#familyBulkCategories").innerHTML = familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" value="${value}"> ${label}</label>`).join("");
     $("#familyMemberSearch").value = "";
     $("#familyMemberRoleFilter").value = "";
@@ -515,12 +516,12 @@ function renderFamilyMembers() {
   });
   $("#familyMembers").innerHTML = visible.length ? visible.map((user) => `
     <li class="familyMemberEditor" data-family-member="${safe(user.ID)}">
-      ${familyManagerIsOwner ? `<label class="familySelection"><input type="checkbox" data-family-select="${safe(user.ID)}" ${familyMemberSelection.has(user.ID) ? "checked" : ""}> Выбрать</label>` : ""}
+      ${familyManagerCanEditCategories ? `<label class="familySelection"><input type="checkbox" data-family-select="${safe(user.ID)}" ${familyMemberSelection.has(user.ID) ? "checked" : ""}> Выбрать</label>` : ""}
       <strong>${safe(user.Name)}</strong><small>${safe(user.Email)}</small>
       <label>Роль доступа<select data-family-role="${safe(user.ID)}" ${familyManagerIsOwner ? "" : "disabled"}>
         <option value="owner" ${user.familyRole === "owner" ? "selected" : ""}>Владелец</option><option value="admin" ${user.familyRole === "admin" ? "selected" : ""}>Администратор семьи</option><option value="member" ${user.familyRole !== "owner" && user.familyRole !== "admin" ? "selected" : ""}>Участник</option>
-      </select>${familyManagerIsOwner ? "" : "<small>Роли и категории меняет только владелец семьи.</small>"}</label>
-      <fieldset class="familyCategories"><legend>Категории <small>необязательно</small></legend>${familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" data-family-category="${safe(user.ID)}" value="${value}" ${user.familyCategories?.includes(value) ? "checked" : ""} ${familyManagerIsOwner ? "" : "disabled"}> ${label}</label>`).join("")}</fieldset>
+      </select>${familyManagerIsOwner ? "" : "<small>Роли доступа меняет только владелец семьи.</small>"}</label>
+      <fieldset class="familyCategories"><legend>Категории <small>необязательно</small></legend>${familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" data-family-category="${safe(user.ID)}" value="${value}" ${user.familyCategories?.includes(value) ? "checked" : ""} ${familyManagerCanEditCategories ? "" : "disabled"}> ${label}</label>`).join("")}</fieldset>
       <label>Отображаемый статус<input data-family-relationship="${safe(user.ID)}" maxlength="80" value="${safe(user.familyRelationship || "Неопределено")}"></label>
       <button type="button" class="secondary" data-save-family-user="${safe(user.ID)}" ${familyDraftDirty(user) ? "" : "disabled"}>Сохранить</button>
     </li>`).join("") : '<li class="muted">Подходящих участников нет.</li>';
@@ -530,7 +531,7 @@ async function saveFamilyMember(userID, button) {
   const draft = familyMemberDrafts.get(userID);
   if (!draft || !familyDraftDirty(draft)) return;
   try {
-    await withBusy(button, "Сохраняем…", async () => request(`/families/${encodeURIComponent(activeFamilyID)}/members/${encodeURIComponent(userID)}`, { method: "PATCH", body: JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship, categories: familyManagerIsOwner ? draft.familyCategories : undefined }) }));
+    await withBusy(button, "Сохраняем…", async () => request(`/families/${encodeURIComponent(activeFamilyID)}/members/${encodeURIComponent(userID)}`, { method: "PATCH", body: JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship, categories: familyManagerCanEditCategories ? draft.familyCategories : undefined }) }));
     draft.original = JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship || "Неопределено", categories: [...(draft.familyCategories || [])].sort() });
     announce("Изменения сохранены");
     renderFamilyMembers();
