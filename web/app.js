@@ -84,12 +84,12 @@ function renderConversations() {
       (c) => c.kind === "group" && favoriteIDs.has(c.id),
     ),
     groupsUnread = groups.reduce((n, c) => n + (c.unreadCount || 0), 0),
-    button = (id, title, unread) =>
-      `<button class="conversation ${active === id ? "selected" : ""}" data-id="${safe(id)}"><span>${safe(title)}</span>${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</button>`;
-  const sectionButton = (id, title, icon, unread = 0) => `<button class="conversation sectionLink ${active === id ? "selected" : ""}" data-id="${id}"><span>${icon} ${title}</span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
+    button = (id, title, unread, icon = "") =>
+      `<button class="conversation ${active === id ? "selected" : ""}" data-id="${safe(id)}"><span class="conversationLabel">${icon ? `<span class="conversationIcon" aria-hidden="true">${safe(icon)}</span>` : ""}<span>${safe(title)}</span></span>${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</button>`;
+  const sectionButton = (id, title, icon, unread = 0) => `<button class="conversation sectionLink ${active === id ? "selected" : ""}" data-id="${id}"><span class="conversationLabel"><span class="conversationIcon" aria-hidden="true">${safe(icon)}</span><span>${safe(title)}</span></span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
   $("#conversations").innerHTML =
-    sectionButton(personalID, t("personal"), "◌", personalUnread) +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount) : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
+    sectionButton(personalID, t("personal"), "👤", personalUnread) +
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.map((c) => button(c.id, c.title, c.unreadCount)).join("") +
     button(groupsID, t("allChats"), groupsUnread);
   $("#conversations").onclick = (e) => {
