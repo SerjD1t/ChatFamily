@@ -119,7 +119,7 @@ func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted
 	return user, nil
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN (SELECT display_name FROM users WHERE id=$1) ELSE 'Личный диалог' END),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN $1 ELSE '' END),COUNT(message.id) FILTER (WHERE message.author_id <> $1 AND message.deleted_at IS NULL AND message.created_at > COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,'') FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN messages message ON message.conversation_id=c.id WHERE m.user_id=$1 AND c.archived_at IS NULL GROUP BY c.id,c.kind,c.title,c.family_id,m.last_read_at ORDER BY c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN (SELECT display_name FROM users WHERE id=$1) ELSE 'Личный диалог' END),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN $1 ELSE '' END),(SELECT COUNT(*) FROM messages unread WHERE unread.conversation_id=c.id AND unread.author_id<>$1 AND unread.deleted_at IS NULL AND unread.created_at>COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,''),COALESCE(latest.body,''),latest.created_at FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN LATERAL (SELECT CASE WHEN deleted_at IS NULL THEN body ELSE 'Сообщение удалено' END AS body,created_at FROM messages WHERE conversation_id=c.id ORDER BY created_at DESC,id DESC LIMIT 1) latest ON true WHERE m.user_id=$1 AND c.archived_at IS NULL ORDER BY latest.created_at DESC NULLS LAST,c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -127,7 +127,7 @@ func (p *Postgres) Conversations(userID string) []chat.Conversation {
 	var out []chat.Conversation
 	for rows.Next() {
 		var c chat.Conversation
-		if rows.Scan(&c.ID, &c.Kind, &c.Title, &c.PeerUserID, &c.UnreadCount, &c.FamilyID) == nil {
+		if rows.Scan(&c.ID, &c.Kind, &c.Title, &c.PeerUserID, &c.UnreadCount, &c.FamilyID, &c.LastMessage, &c.LastMessageAt) == nil {
 			out = append(out, c)
 		}
 	}

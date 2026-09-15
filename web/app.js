@@ -1,6 +1,8 @@
 import { api, $, request, safe } from "./api.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
+import { formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, todayISO } from "./format.js";
+import { applyTranslations, observeTranslations, tr } from "./i18n.js";
 const personalID = "__personal__",
   groupsID = "__groups__",
   childrenID = "__children__",
@@ -32,11 +34,8 @@ const familySections = [
   [shoppingID, "shopping", "shopping", "🛒"],
 ];
 let minPasswordLength = 12;
-const translations = {
-  ru: { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" },
-  en: { personal: "Direct messages", family: "Family", familyChat: "Family chat", children: "Children", grandparents: "Grandparents", shopping: "Shopping", chats: "Family chats", allChats: "All family chats" },
-};
-function t(key) { return (translations[userPreferences.locale] || translations.ru)[key] || key; }
+const navigationLabels = { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" };
+function t(key) { return tr(navigationLabels[key] || key, userPreferences.locale); }
 function applyPasswordPolicy(policy) {
   minPasswordLength = policy.minPasswordLength || 12;
   for (const selector of ["#registerPassword", "#invitePassword", "#invitePasswordRepeat", "#newPassword", "#newPasswordRepeat"])
@@ -45,6 +44,8 @@ function applyPasswordPolicy(policy) {
 function applyInterfacePreferences() {
   document.documentElement.lang = userPreferences.locale || "ru";
   document.documentElement.dataset.theme = userPreferences.colorScheme || "system";
+  mobileBackButton.textContent = `‹ ${tr("Назад", userPreferences.locale || "ru")}`;
+  applyTranslations(userPreferences.locale || "ru");
 }
 async function loadPasswordPolicy() {
   try { applyPasswordPolicy(await request("/password-policy")); } catch (_) {}
@@ -64,7 +65,7 @@ mobileBackButton.textContent = "‹ Назад";
 mobileBackButton.hidden = true;
 document.querySelector(".chatHead")?.prepend(mobileBackButton);
 function openMobileContent() {
-  if (!matchMedia("(max-width: 760px)").matches) return;
+  if (!matchMedia("(max-width: 767px)").matches) return;
   document.body.classList.add("mobileContentOpen");
   mobileBackButton.hidden = false;
 }
@@ -73,8 +74,19 @@ function closeMobileContent() {
   mobileBackButton.hidden = true;
 }
 mobileBackButton.onclick = closeMobileContent;
+function resetChatActions() {
+  for (const selector of ["#searchMessages", "#renameConversation", "#inviteFamily", "#toggleFavorite", "#manageMembers", "#deleteGroup", "#chatMore"])
+    $(selector).hidden = true;
+  $("#chatMoreMenu").hidden = true;
+}
 function directChats() {
   return conversations.filter((c) => c.kind === "direct");
+}
+function loadingMarkup() {
+  return '<div class="loadingState" aria-label="Загрузка"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+}
+function avatarMarkup(title, icon = "") {
+  return icon ? `<span class="conversationIcon" aria-hidden="true">${safe(icon)}</span>` : `<span class="conversationAvatar" aria-hidden="true">${safe(initials(title))}</span>`;
 }
 function renderConversations() {
   const direct = directChats(),
@@ -84,20 +96,25 @@ function renderConversations() {
     favorites = groups.filter(
       (c) => c.kind === "group" && favoriteIDs.has(c.id),
     ),
-    groupsUnread = groups.reduce((n, c) => n + (c.unreadCount || 0), 0),
-    button = (id, title, unread, icon = "") =>
-      `<button class="conversation ${active === id ? "selected" : ""}" data-id="${safe(id)}"><span class="conversationLabel">${icon ? `<span class="conversationIcon" aria-hidden="true">${safe(icon)}</span>` : ""}<span>${safe(title)}</span></span>${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</button>`;
-  const sectionButton = (id, title, icon, unread = 0) => `<button class="conversation sectionLink ${active === id ? "selected" : ""}" data-id="${id}"><span class="conversationLabel"><span class="conversationIcon" aria-hidden="true">${safe(icon)}</span><span>${safe(title)}</span></span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
+    filter = $("#conversationFilter")?.value.trim().toLocaleLowerCase() || "",
+    visibleGroups = groups.filter((conversation) => conversation.kind === "group" && (!filter || conversation.title.toLocaleLowerCase().includes(filter))),
+    button = (conversation, icon = "") => {
+      const title = conversation.title || "Диалог", unread = conversation.unreadCount || 0;
+      return `<button class="conversation ${active === conversation.id ? "selected" : ""}" data-id="${safe(conversation.id)}">${avatarMarkup(title, icon)}<span class="conversationContent"><span class="conversationTitle">${safe(title)}</span>${conversation.lastMessage ? `<span class="conversationPreview">${safe(conversation.lastMessage)}</span>` : ""}</span><span class="conversationMeta">${conversation.lastMessageAt ? `<span class="conversationTime">${safe(formatConversationTime(conversation.lastMessageAt, userPreferences.locale))}</span>` : ""}${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</span></button>`;
+    };
+  const sectionButton = (id, title, icon, unread = 0) => button({ id, title, unreadCount: unread }, icon);
   $("#conversations").innerHTML =
     sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button(family.id, t("familyChat"), family.unreadCount, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, id === shoppingID ? `${t(title)} (${shoppingCounter.plannedToday}/${shoppingCounter.total})` : t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
-    favorites.map((c) => button(c.id, c.title, c.unreadCount)).join("") +
-    button(groupsID, t("allChats"), groupsUnread);
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, id === shoppingID ? `${t(title)} (${shoppingCounter.plannedToday}/${shoppingCounter.total})` : t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
+    favorites.filter((conversation) => visibleGroups.some((item) => item.id === conversation.id)).map((conversation) => button(conversation, "★")).join("") +
+    visibleGroups.filter((conversation) => !favoriteIDs.has(conversation.id)).map((conversation) => button(conversation, "#")).join("") +
+    (activeFamilyID && !visibleGroups.length ? `<p class="conversationPreview">${safe(filter ? "Ничего не найдено" : "Групп пока нет")}</p>` : "");
   $("#conversations").onclick = (e) => {
     const item = e.target.closest("[data-id]");
     if (item) openConversation(item.dataset.id);
   };
 }
+$("#conversationFilter").oninput = renderConversations;
 async function loadConversations() {
   const [list, favorites, shoppingItems] = await Promise.all([
     request("/conversations"),
@@ -115,10 +132,11 @@ async function loadConversations() {
   }
 }
 function messageStatus(status) {
+  const label = tr({ sent: "Отправлено", delivered: "Получено", read: "Прочитано" }[status] || "", userPreferences.locale);
   return {
-    sent: '<span class="messageStatus sent" title="Отправлено" aria-label="Отправлено">✓</span>',
-    delivered: '<span class="messageStatus delivered" title="Получено" aria-label="Получено">✓✓</span>',
-    read: '<span class="messageStatus read" title="Прочитано" aria-label="Прочитано">✓✓</span>',
+    sent: `<span class="messageStatus sent" title="${safe(label)}" aria-label="${safe(label)}">✓</span>`,
+    delivered: `<span class="messageStatus delivered" title="${safe(label)}" aria-label="${safe(label)}">✓✓</span>`,
+    read: `<span class="messageStatus read" title="${safe(label)}" aria-label="${safe(label)}">✓✓</span>`,
   }[status] || "";
 }function reactionButtons(message) {
   const reactions = (message.reactions || [])
@@ -128,6 +146,9 @@ function messageStatus(status) {
     )
     .join("");
   return reactions ? `<div class="reactions">${reactions}</div>` : "";
+}
+function contactMarkup({ id, name, subtitle = "", preview = "", time = "", unread = 0, self = false, group = false }) {
+  return `<button class="personalContact" ${group ? `data-group-id="${safe(id)}"` : `data-user-id="${safe(id)}"`}><span class="conversationAvatar" aria-hidden="true">${safe(initials(name))}</span><span class="personalContactContent"><span class="personalContactTitle">${safe(name)}${self ? ` <span class="selfBadge">${tr("Вы", userPreferences.locale)}</span>` : ""}</span><span class="personalContactPreview">${safe(preview || subtitle)}</span></span><span class="contactMeta">${time ? `<span>${safe(time)}</span>` : ""}${unread ? `<b class="unread">${unread}</b>` : ""}</span></button>`;
 }
 function reactionAddButton(message) {
   return `<button class="reaction reactionAdd" data-message="${message.id}" data-add-reaction="true" title="Добавить реакцию" aria-label="Добавить реакцию">＋</button><button class="reaction reactionReply" data-reply-id="${message.id}" title="Ответить" aria-label="Ответить">↩</button>`;
@@ -177,9 +198,10 @@ async function openPersonal() {
   saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Личные";
+  $("#chatSubtitle").textContent = "Глобальные диалоги";
   $("#composer").hidden = true;
-  $("#manageMembers").hidden = true;
-  $("#messages").innerHTML = '<p class="muted">Загрузка участников…</p>';
+  resetChatActions();
+  $("#messages").innerHTML = loadingMarkup();
   try {
     const contacts = await request(`/contacts?familyId=${encodeURIComponent(activeFamilyID)}`);
     if (version !== loadVersion || active !== personalID) return;
@@ -190,7 +212,7 @@ async function openPersonal() {
             const chat = chats.find((c) => c.peerUserId === u.ID),
               unread = chat?.unreadCount || 0,
               isSelf = u.ID === currentUser.ID;
-            return `<button class="personalContact" data-user-id="${safe(u.ID)}"><span>${safe(u.Name)}${isSelf ? ' <small class="muted">Вы</small>' : ` <small class="muted">${safe(u.familyRelationship || "Неопределено")}</small>`}</span>${unread ? `<b class="unread">${unread}</b>` : ""}</button>`;
+            return contactMarkup({ id: u.ID, name: u.Name, self: isSelf, subtitle: u.familyRelationship || "Неопределено", preview: chat?.lastMessage, time: formatConversationTime(chat?.lastMessageAt, userPreferences.locale), unread });
           })
           .join("")}</div>`
       : '<p class="muted">Других участников пока нет.</p>';
@@ -210,12 +232,12 @@ async function openGroups() {
   saveActive(active);
   renderConversations();
   $("#chatTitle").textContent = "Все группы";
+  $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
   $("#composer").hidden = true;
-  $("#manageMembers").hidden = true;
-  $("#toggleFavorite").hidden = true;
+  resetChatActions();
   const groups = familyConversations(conversations, activeFamilyID);
   $("#messages").innerHTML = groups.length
-    ? `<div class="personalList">${groups.map((c) => `<button class="personalContact" data-group-id="${safe(c.id)}"><span>${safe(c.title || "Семья")}</span>${c.unreadCount ? `<b class="unread">${c.unreadCount}</b>` : ""}</button>`).join("")}</div>`
+    ? `<div class="personalList">${groups.map((c) => contactMarkup({ id: c.id, name: c.title || "Семья", group: true, preview: c.lastMessage, time: formatConversationTime(c.lastMessageAt, userPreferences.locale), unread: c.unreadCount })).join("")}</div>`
     : '<p class="muted">Групп пока нет.</p>';
   $("#messages").onclick = (e) => {
     const item = e.target.closest("[data-group-id]");
@@ -248,6 +270,7 @@ async function openConversation(id, before = "") {
   const c = conversations.find((x) => x.id === id),
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
   $("#chatTitle").textContent = c?.title || "Диалог";
+  $("#chatSubtitle").textContent = c?.kind === "direct" ? "Личный диалог" : activeFamily(families, c?.familyId)?.title || "";
   const canManageGroup = c?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
   $("#manageMembers").hidden = c?.kind !== "group";
   $("#deleteGroup").hidden = c?.kind !== "group" || !canManageGroup;
@@ -256,22 +279,21 @@ async function openConversation(id, before = "") {
   $("#searchMessages").hidden = !c;
   $("#renameConversation").hidden = !(c && canManageGroup);
   $("#toggleFavorite").hidden = c?.kind !== "group";
-  $("#toggleFavorite").textContent = isFavorite ? "★" : "☆";
   $("#toggleFavorite").title = isFavorite
     ? "Убрать из избранного"
     : "Добавить в избранное";
   $("#toggleFavorite").setAttribute("aria-label", $("#toggleFavorite").title);
-  $("#messages").innerHTML = '<p class="muted">Загрузка сообщений…</p>';
+  $("#toggleFavorite").textContent = isFavorite ? "Убрать из избранного" : "Добавить в избранное";
+  $("#chatMore").hidden = $("#renameConversation").hidden && $("#toggleFavorite").hidden && $("#deleteGroup").hidden;
+  $("#chatMoreMenu").hidden = true;
+  $("#messages").innerHTML = loadingMarkup();
   try {
     const page = await request(`/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ""}`), list = page.messages || [];
     if (version !== loadVersion || id !== active) return;
     $("#messages").innerHTML =
       (page.nextBefore ? `<button class="secondary loadOlder" data-load-older="${safe(page.nextBefore)}">Показать более ранние сообщения</button>` : "") +
-      (Array.isArray(list) ? list : [])
-        .map(
-          (m) =>
-            `<article class="message ${m.authorId === currentUser.ID ? "own" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? "Сообщение удалено" : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${new Date(m.createdAt).toLocaleString("ru-RU")}${m.editedAt ? " · изменено" : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`,
-        )
+      groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? tr("Сообщение удалено", userPreferences.locale) : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     $("#messages").onclick = handleMessages;
     $("#messages").scrollTop = $("#messages").scrollHeight;
@@ -289,13 +311,15 @@ async function openFamilyCategory(sectionID) {
   openMobileContent();
   active = sectionID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t(title);
+  $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
   $("#composer").hidden = true;
-  $("#messages").innerHTML = '<p class="muted">Загрузка участников…</p>';
+  resetChatActions();
+  $("#messages").innerHTML = loadingMarkup();
   try {
     const familyConversation = conversations.find((conversation) => conversation.kind === "family" && conversation.familyId === activeFamilyID);
     const members = familyConversation ? await request(`/conversations/${encodeURIComponent(familyConversation.id)}/members`) : [];
     const filtered = members.filter((member) => member.familyCategories?.includes(category));
-    $("#messages").innerHTML = filtered.length ? `<div class="familyDirectory">${filtered.map((member) => `<button class="personalContact" data-user-id="${safe(member.ID)}"><span><strong>${safe(member.Name)}</strong><small class="muted">${safe(member.familyRelationship || "")}</small></span><span>Написать</span></button>`).join("")}</div>` : '<section class="emptyState"><h3>Пока никого нет</h3><p>Владелец семьи может назначить эту категорию в управлении семьёй.</p></section>';
+    $("#messages").innerHTML = filtered.length ? `<div class="familyDirectory">${filtered.map((member) => contactMarkup({ id: member.ID, name: member.Name, subtitle: member.familyRelationship || "Написать" })).join("")}</div>` : '<section class="emptyState"><div class="emptyIcon" aria-hidden="true">○</div><h3>Пока никого нет</h3><p>Владелец или администратор семьи может назначить эту категорию в управлении семьёй.</p></section>';
     $("#messages").onclick = (event) => { const userID = event.target.closest("[data-user-id]")?.dataset.userId; if (userID) startDirect(userID); };
   } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
 }
@@ -304,20 +328,22 @@ async function openShopping() {
   openMobileContent();
   active = shoppingID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t("shopping");
+  $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
   $("#composer").hidden = true;
-  $("#messages").innerHTML = '<p class="muted">Загрузка покупок…</p>';
+  resetChatActions();
+  $("#messages").innerHTML = loadingMarkup();
   try {
     const items = await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`);
     shoppingCounter = summarizeShopping(items);
     renderConversations();
-    const pending = items.filter((item) => !item.completedAt), done = items.filter((item) => item.completedAt);
+    const todayValue = todayISO(), pending = items.filter((item) => !item.completedAt), todayItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) <= todayValue), laterItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) > todayValue), done = items.filter((item) => item.completedAt);
     const plannedDateValue = (item) => item.plannedDate ? item.plannedDate.slice(0, 10) : "";
-    const today = new Date(), todayValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    const renderItem = (item) => `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label class="shoppingCheck"><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label><label class="shoppingItemDate"><span class="visuallyHidden">Плановая дата для ${safe(item.title)}</span><input type="date" data-shopping-date="${safe(item.id)}" value="${safe(plannedDateValue(item))}" aria-label="Плановая дата покупки: ${safe(item.title)}"></label>${(item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID)) ? `<button class="secondary" data-shopping-delete="${safe(item.id)}" aria-label="Удалить покупку">×</button>` : ""}</li>`;
-    $("#messages").innerHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="shoppingTitleField"><span class="visuallyHidden">Добавить покупку</span><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку" required></label><label class="shoppingDateField">Дата<input id="shoppingDate" type="date" value="${todayValue}" required></label><button>Добавить</button></form><h3>Купить</h3><ul>${pending.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul>${done.length ? `<details><summary>Куплено: ${done.length}</summary><ul>${done.map(renderItem).join("")}</ul></details>` : ""}</section>`;
+    const renderItem = (item) => { const canDelete = item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID); return `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label class="shoppingCheck"><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label><label class="shoppingDateControl"><span class="shoppingDateLabel">${safe(formatShoppingDate(plannedDateValue(item), userPreferences.locale))}</span><input type="date" data-shopping-date="${safe(item.id)}" value="${safe(plannedDateValue(item))}" aria-label="Изменить дату"></label>${canDelete ? `<button type="button" class="secondary shoppingMore" data-shopping-more="${safe(item.id)}" aria-label="Другие действия">•••</button><div class="shoppingItemMenu" data-shopping-menu="${safe(item.id)}" hidden><button type="button" class="menuAction dangerText" data-shopping-delete="${safe(item.id)}">Удалить покупку</button></div>` : ""}</li>`; };
+    const section = (title, list) => `<section class="shoppingSection"><h3><span>${title}</span><span>${list.length}</span></h3><ul>${list.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul></section>`;
+    $("#messages").innerHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="shoppingTitleField"><span class="visuallyHidden">Добавить покупку</span><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку" required></label><label class="shoppingDateField">Дата<input id="shoppingDate" type="date" value="${todayValue}" required></label><button>Добавить</button></form>${section(tr("Сегодня", userPreferences.locale), todayItems)}${section(tr("Позже", userPreferences.locale), laterItems)}${done.length ? `<details><summary>${tr("Куплено", userPreferences.locale)}: ${done.length}</summary>${section(tr("Куплено", userPreferences.locale), done)}</details>` : ""}</section>`;
     $("#shoppingForm").onsubmit = async (event) => { event.preventDefault(); const title = $("#shoppingTitle").value.trim(), plannedDate = $("#shoppingDate").value; if (!title || !plannedDate) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`, { method: "POST", body: JSON.stringify({ title, plannedDate }) }); announce("Покупка добавлена"); openShopping(); } catch (error) { announce(error.message, "error"); } };
     $("#messages").onchange = async (event) => { const toggleID = event.target.dataset.shoppingToggle, dateID = event.target.dataset.shoppingDate; if (!toggleID && !dateID) return; try { if (toggleID) await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(toggleID)}`, { method: "PATCH", body: JSON.stringify({ completed: event.target.checked }) }); else { if (!event.target.value) throw Error("Укажите плановую дату покупки"); await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(dateID)}`, { method: "PATCH", body: JSON.stringify({ plannedDate: event.target.value }) }); } openShopping(); } catch (error) { announce(error.message, "error"); openShopping(); } };
-    $("#messages").onclick = async (event) => { const id = event.target.dataset.shoppingDelete; if (!id) return; if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
+    $("#messages").onclick = async (event) => { const moreID = event.target.closest("[data-shopping-more]")?.dataset.shoppingMore; if (moreID) { const menu = $(`[data-shopping-menu="${CSS.escape(moreID)}"]`); const willOpen = menu.hidden; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); menu.hidden = !willOpen; return; } const id = event.target.closest("[data-shopping-delete]")?.dataset.shoppingDelete; if (!id) return; if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
   } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
 }
 function renderAttachments() {
@@ -645,6 +671,7 @@ $("#toggleFavorite").onclick = async () => {
     openConversation(active);
   } catch (e) { announce(e.message, "error"); }
 };
+$("#chatMore").onclick = () => { $("#chatMoreMenu").hidden = !$("#chatMoreMenu").hidden; };
 $("#administration").onclick = openAdmin;
 $("#closeApplicationAdmin").onclick = () => $("#applicationAdminDialog").close();
 $("#applicationSettingsForm").onsubmit = async (event) => {
@@ -704,10 +731,10 @@ async function closeFamilyAdministration() {
 }
 $("#closeFamilyAdmin").onclick = closeFamilyAdministration;
 $("#familyAdminDialog").oncancel = (event) => { event.preventDefault(); closeFamilyAdministration(); };
-$("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; $("#familyInviteDialog").showModal(); };
+$("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; delete $("#familyInviteToken").dataset.token; $("#familyInviteDialog").showModal(); };
 $("#closeFamilyInvite").onclick = () => $("#familyInviteDialog").close();
-$("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено", permissions: ["send_messages", "edit_own_messages", "delete_own_messages", "create_groups"] }) }); $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };
-$("#copyFamilyInviteToken").onclick = async () => { const code = $("#familyInviteTokenText").textContent.replace("Одноразовый код: ", ""); if (!code) return; try { await navigator.clipboard.writeText(code); $("#copyFamilyInviteToken").textContent = "Скопировано"; setTimeout(() => { $("#copyFamilyInviteToken").textContent = "Скопировать"; }, 1500); } catch { $("#familyInviteError").textContent = "Не удалось скопировать код. Скопируйте его вручную."; } };
+$("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено", permissions: ["send_messages", "edit_own_messages", "delete_own_messages", "create_groups"] }) }); $("#familyInviteToken").dataset.token = invite.token; $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };
+$("#copyFamilyInviteToken").onclick = async () => { const code = $("#familyInviteToken").dataset.token || ""; if (!code) return; try { await navigator.clipboard.writeText(code); $("#copyFamilyInviteToken").textContent = "Скопировано"; setTimeout(() => { $("#copyFamilyInviteToken").textContent = "Скопировать"; }, 1500); } catch { $("#familyInviteError").textContent = "Не удалось скопировать код. Скопируйте его вручную."; } };
 $("#closeFamily").onclick = () => $("#familyDialog").close();
 $("#familyForm").onsubmit = async (e) => {
   e.preventDefault();
@@ -962,7 +989,7 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   const article = button.closest(".message");
   replyDraft = {
-    author: article?.querySelector("strong")?.textContent || "Сообщение",
+    author: article?.querySelector(".messageAuthor")?.textContent || "Сообщение",
     body: article?.querySelector("p")?.textContent || "",
   };
   const preview = $("#replyPreview");
@@ -975,6 +1002,12 @@ document.addEventListener("click", (event) => {
 document.addEventListener("pointerdown", (event) => {
   const menu = $("#sendMenu");
   if (!menu.hidden && !event.target.closest("#sendMenu") && !event.target.closest("#sendButton")) menu.hidden = true;
+  const actions = $("#chatMoreMenu");
+  if (!actions.hidden && !event.target.closest("#chatMoreMenu") && !event.target.closest("#chatMore")) actions.hidden = true;
+});
+$("#body").addEventListener("input", (event) => {
+  event.currentTarget.style.height = "auto";
+  event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px`;
 });
 $("#composer").addEventListener(
   "submit",
@@ -988,3 +1021,4 @@ $("#composer").addEventListener(
   },
   true,
 );
+observeTranslations(() => userPreferences.locale || "ru");

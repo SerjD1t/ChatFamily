@@ -42,10 +42,33 @@ func (s *Service) Conversations(userID string) []Conversation {
 	out := []Conversation{}
 	for _, c := range s.conversations {
 		if c.Members[userID] {
-			out = append(out, *c)
+			copy := *c
+			for _, message := range s.messages {
+				if message.ConversationID != c.ID || copy.LastMessageAt != nil && !message.CreatedAt.After(*copy.LastMessageAt) {
+					continue
+				}
+				copy.LastMessage = message.Body
+				if message.DeletedAt != nil {
+					copy.LastMessage = "Сообщение удалено"
+				}
+				createdAt := message.CreatedAt
+				copy.LastMessageAt = &createdAt
+			}
+			out = append(out, copy)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastMessageAt == nil || out[j].LastMessageAt == nil {
+			if out[i].LastMessageAt != out[j].LastMessageAt {
+				return out[i].LastMessageAt != nil
+			}
+			return out[i].Title < out[j].Title
+		}
+		if !out[i].LastMessageAt.Equal(*out[j].LastMessageAt) {
+			return out[i].LastMessageAt.After(*out[j].LastMessageAt)
+		}
+		return out[i].Title < out[j].Title
+	})
 	return out
 }
 func (s *Service) CreateGroup(actor User, title string, members []string) (Conversation, error) {

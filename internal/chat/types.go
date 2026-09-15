@@ -73,13 +73,15 @@ const (
 )
 
 type Conversation struct {
-	ID          string           `json:"id"`
-	Kind        ConversationKind `json:"kind"`
-	Title       string           `json:"title"`
-	PeerUserID  string           `json:"peerUserId,omitempty"`
-	UnreadCount int64            `json:"unreadCount"`
-	FamilyID    string           `json:"familyId,omitempty"`
-	Members     map[string]bool  `json:"-"`
+	ID            string           `json:"id"`
+	Kind          ConversationKind `json:"kind"`
+	Title         string           `json:"title"`
+	PeerUserID    string           `json:"peerUserId,omitempty"`
+	UnreadCount   int64            `json:"unreadCount"`
+	FamilyID      string           `json:"familyId,omitempty"`
+	LastMessage   string           `json:"lastMessage,omitempty"`
+	LastMessageAt *time.Time       `json:"lastMessageAt,omitempty"`
+	Members       map[string]bool  `json:"-"`
 }
 type Attachment struct {
 	ID          string `json:"id"`

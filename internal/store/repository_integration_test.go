@@ -44,6 +44,17 @@ func TestPostgresRepositoryRoundTrip(t *testing.T) {
 	if message.Body != "test message" {
 		t.Fatalf("body = %q", message.Body)
 	}
+	conversations := p.Conversations(admin.ID)
+	var listed *chat.Conversation
+	for index := range conversations {
+		if conversations[index].ID == group.ID {
+			listed = &conversations[index]
+			break
+		}
+	}
+	if listed == nil || listed.LastMessage != "test message" || listed.LastMessageAt == nil {
+		t.Fatalf("conversation preview not populated: %#v", listed)
+	}
 	messages, err := p.Messages(member, group.ID)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("messages = %d, err = %v", len(messages), err)

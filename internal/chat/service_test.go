@@ -30,3 +30,22 @@ func TestGroupCreationRequiresPermission(t *testing.T) {
 		t.Fatalf("create group error = %v, want forbidden", err)
 	}
 }
+
+func TestConversationsIncludeLatestMessagePreview(t *testing.T) {
+	s := New(owner())
+	message, err := s.CreateMessage(owner(), "family", "Последнее сообщение", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conversations := s.Conversations(owner().ID)
+	if len(conversations) != 1 {
+		t.Fatalf("conversation count = %d, want 1", len(conversations))
+	}
+	if conversations[0].LastMessage != message.Body {
+		t.Fatalf("last message = %q, want %q", conversations[0].LastMessage, message.Body)
+	}
+	if conversations[0].LastMessageAt == nil || !conversations[0].LastMessageAt.Equal(message.CreatedAt) {
+		t.Fatalf("last message time = %v, want %v", conversations[0].LastMessageAt, message.CreatedAt)
+	}
+}
