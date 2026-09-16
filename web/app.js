@@ -1,10 +1,12 @@
 import { api, $, request, safe } from "./api.js";
 import { initJoinFamily } from "./join-family.js";
 import { initUserLifecycle } from "./user-lifecycle.js";
+import { mountDirectory } from "./directory.js";
 import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/runtime.js";
 import { initIncomingShares } from "./mobile/incoming-share.js";
 import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
+import { mountNeeds } from "./family-needs.js";
 import { createReceipts } from "./receipts.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
@@ -124,7 +126,7 @@ const familySections = [
   [shoppingID, "shopping", "shopping", "🛒"],
 ];
 let minPasswordLength = 12;
-const navigationLabels = { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" };
+const navigationLabels = { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Дела и покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" };
 function t(key) { return tr(navigationLabels[key] || key, userPreferences.locale); }
 function applyPasswordPolicy(policy) {
   minPasswordLength = policy.minPasswordLength || 12;
@@ -195,7 +197,7 @@ function renderConversations() {
   const sectionButton = (id, title, icon, unread = 0) => button({ id, title, unreadCount: unread }, icon);
   const navigationHTML =
     sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.map(([id, title, , icon]) => sectionButton(id, id === shoppingID ? `${t(title)} (${shoppingCounter.plannedToday}/${shoppingCounter.total})` : t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.map(([id, title, , icon]) => id === shoppingID ? button({id, title: t(title), lastMessage: `${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, icon) : sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.filter((conversation) => visibleGroups.some((item) => item.id === conversation.id)).map((conversation) => button(conversation, "★")).join("") +
     visibleGroups.filter((conversation) => !favoriteIDs.has(conversation.id)).map((conversation) => button(conversation, "#")).join("") +
     (activeFamilyID && !visibleGroups.length ? `<p class="conversationPreview">${safe(filter ? "Ничего не найдено" : "Групп пока нет")}</p>` : "");
@@ -256,6 +258,7 @@ function openUserCard(userID, name, avatarURL) {
   image.src = avatarURL || "/icon-1254.png";
   image.alt = `Фото: ${name || "пользователь"}`;
   $("#changeAvatar").hidden = userID !== currentUser?.ID;
+  $("#openEditNames").hidden = userID !== currentUser?.ID;
   $("#openInterfaceSettings").hidden = userID !== currentUser?.ID;
   $("#interfaceSettingsForm").hidden = true;
   $("#interfaceLocale").value = userPreferences.locale || "ru";
@@ -298,16 +301,13 @@ async function openPersonal() {
     const contacts = await request(`/contacts?familyId=${encodeURIComponent(activeFamilyID)}`);
     if (version !== loadVersion || active !== personalID) return;
     const chats = directChats();
-    $("#messages").innerHTML = contacts.length
-      ? `<div class="personalList">${contacts
-          .map((u) => {
+    $("#messages").innerHTML = '<div id="personalDirectory" class="personalList"></div>';
+    mountDirectory({list:$("#personalDirectory"),users:contacts,locale:()=>userPreferences.locale,render:(u) => {
             const chat = chats.find((c) => c.peerUserId === u.ID),
               unread = chat?.unreadCount || 0,
               isSelf = u.ID === currentUser.ID;
             return contactMarkup({ id: u.ID, name: u.Name, self: isSelf, subtitle: u.familyRelationship || "Неопределено", preview: chat?.lastMessage, time: formatConversationTime(chat?.lastMessageAt, userPreferences.locale), unread });
-          })
-          .join("")}</div>`
-      : '<p class="muted">Других участников пока нет.</p>';
+          }});
     $("#messages").onclick = (e) => {
       const item = e.target.closest("[data-user-id]");
       if (item) startDirect(item.dataset.userId);
@@ -435,25 +435,21 @@ async function openShopping() {
   if (!refreshing) openMobileContent();
   active = shoppingID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t("shopping");
-  $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
-  $("#composer").hidden = true;
-  resetChatActions();
+  $("#chatSubtitle").textContent = activeFamily(families, familyID)?.title || "";
+  $("#composer").hidden = true; resetChatActions();
   if (!refreshing) $("#messages").innerHTML = loadingMarkup();
+  const isCurrent = () => active === shoppingID && familyID === activeFamilyID;
   try {
-    const items = await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`);
-    if (version !== loadVersion || active !== shoppingID || familyID !== activeFamilyID) return;
-    shoppingCounter = summarizeShopping(items);
-    renderConversations();
-    const todayValue = todayISO(), pending = items.filter((item) => !item.completedAt), todayItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) <= todayValue), laterItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) > todayValue), done = items.filter((item) => item.completedAt);
-    const plannedDateValue = (item) => item.plannedDate ? item.plannedDate.slice(0, 10) : "";
-    const renderItem = (item) => { const canDelete = item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID), plannedDate = plannedDateValue(item); return `<li data-shopping-id="${safe(item.id)}" class="shoppingItem ${item.completedAt ? "completed" : ""}"><label class="shoppingCheck"><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label><button type="button" class="shoppingDateButton" data-shopping-date="${safe(item.id)}" data-shopping-date-value="${safe(plannedDate)}" aria-label="Изменить дату">${safe(formatShoppingDate(plannedDate, userPreferences.locale))}</button>${canDelete ? `<button type="button" class="secondary shoppingMore" data-shopping-more="${safe(item.id)}" aria-label="Другие действия">•••</button><div class="shoppingItemMenu" data-shopping-menu="${safe(item.id)}" hidden><button type="button" class="menuAction dangerText" data-shopping-delete="${safe(item.id)}">Удалить покупку</button></div>` : ""}</li>`; };
-    const section = (title, list) => `<section class="shoppingSection"><h3><span>${title}</span><span>${list.length}</span></h3><ul>${list.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul></section>`;
-    const shoppingHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="shoppingTitleField"><span class="visuallyHidden">Добавить покупку</span><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку" required></label><label class="shoppingDateField">Дата<input id="shoppingDate" type="date" value="${todayValue}" required></label><button>Добавить</button></form>${section(tr("Сегодня", userPreferences.locale), todayItems)}${section(tr("Позже", userPreferences.locale), laterItems)}${done.length ? `<details><summary>${tr("Куплено", userPreferences.locale)}: ${done.length}</summary>${section(tr("Куплено", userPreferences.locale), done)}</details>` : ""}</section>`;
-    syncMarkup($("#messages"), shoppingHTML);
-    $("#shoppingForm").onsubmit = async (event) => { event.preventDefault(); const title = $("#shoppingTitle").value.trim(), plannedDate = $("#shoppingDate").value; if (!title || !plannedDate) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`, { method: "POST", body: JSON.stringify({ title, plannedDate }) }); announce("Покупка добавлена"); $("#shoppingTitle").value = ""; openShopping(); } catch (error) { announce(error.message, "error"); } };
-    $("#messages").onchange = async (event) => { const toggleID = event.target.dataset.shoppingToggle; if (!toggleID) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(toggleID)}`, { method: "PATCH", body: JSON.stringify({ completed: event.target.checked }) }); openShopping(); } catch (error) { announce(error.message, "error"); openShopping(); } };
-    $("#messages").onclick = async (event) => { const dateButton = event.target.closest("[data-shopping-date]"); if (dateButton) { editingShoppingDateID = dateButton.dataset.shoppingDate; $("#shoppingDateEdit").value = dateButton.dataset.shoppingDateValue || todayValue; $("#shoppingDateError").textContent = ""; $("#shoppingDateDialog").showModal(); return; } const moreID = event.target.closest("[data-shopping-more]")?.dataset.shoppingMore; if (moreID) { const menu = $(`[data-shopping-menu="${CSS.escape(moreID)}"]`); const willOpen = menu.hidden; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); menu.hidden = !willOpen; return; } const id = event.target.closest("[data-shopping-delete]")?.dataset.shoppingDelete; if (!id) return; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
-  } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
+    const base = `/families/${encodeURIComponent(familyID)}/needs`;
+    const [items, archived] = await Promise.all([request(base), request(base + "?archived=true")]);
+    if (version !== loadVersion || !isCurrent()) return;
+    shoppingCounter = summarizeShopping(items); renderConversations();
+    mountNeeds({host: $("#messages"), familyID, items: [...items,...archived], request, refresh: openShopping, announce, locale: userPreferences.locale, isCurrent});
+  } catch (error) {
+    if (version !== loadVersion || !isCurrent()) return;
+    if (refreshing) announce(error.message, "error");
+    else $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`;
+  }
 }
 function renderAttachments() {
   $("#attachmentList").textContent = pendingFiles.length
@@ -522,12 +518,10 @@ async function openAdmin() {
     const [users, settings] = await Promise.all([request("/users"), request("/application/settings")]);
     $("#minPasswordLength").value = settings.minPasswordLength;
     $("#applicationSettingsError").textContent = "";
-    $("#users").innerHTML = users
-      .map((u) => {
+    mountDirectory({list:$("#users"),users,admin:true,locale:()=>userPreferences.locale,render:(u) => {
         const admin = !!u.Permissions?.manage_application;
-        return `<li><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small>${u.disabled ? '<small>Деактивирован</small>' : ''}${admin ? "<small>Администратор приложения</small>" : ""}${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</li>`;
-      })
-      .join("");
+        return `<li class="accountRow"><div class="accountIdentity" data-no-i18n><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small></div><div class="accountStatus">${u.disabled ? '<small>Деактивирован</small>' : '<small>Активен</small>'}${admin ? "<small>Администратор приложения</small>" : ""}</div><details class="accountActions"><summary>Действия</summary><div>${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</div></details></li>`;
+      }});
     $("#users").onclick = async (e) => {
       const lifecycle=e.target.closest('[data-user-lifecycle]');
       if(lifecycle){const user=users.find(u=>u.ID===lifecycle.dataset.userLifecycle);if(user)openUserLifecycle(user,lifecycle.dataset.action);return;}
@@ -739,6 +733,23 @@ async function configurePush() {
   };
 }
 $("#closeProfile").onclick = () => $("#profileDialog").close();
+const editNamesButton=document.createElement('button');editNamesButton.id='openEditNames';editNamesButton.type='button';editNamesButton.className='secondary';editNamesButton.textContent='Имя и фамилия';editNamesButton.hidden=true;
+$("#openPasswordForm").before(editNamesButton);
+editNamesButton.onclick=()=>{
+  $("#profileFirstName").value=currentUser.firstName||currentUser.Name;
+  $("#profileLastName").value=currentUser.lastName||'';
+  $("#editNamesError").textContent='';$("#profileDialog").close();$("#editNamesDialog").showModal();
+};
+$("#cancelEditNames").onclick=()=>$("#editNamesDialog").close();
+$("#editNamesForm").onsubmit=async event=>{
+  event.preventDefault();const button=event.currentTarget.querySelector('[type="submit"]');if(button.disabled)return;
+  try{
+    const updated=await withBusy(button,'Сохраняем…',()=>request('/user/profile',{method:'PUT',body:JSON.stringify({firstName:$("#profileFirstName").value,lastName:$("#profileLastName").value})}));
+    currentUser=updated;$("#currentUserName").textContent=updated.Name;$("#currentUserHeader").textContent=updated.Name;$("#currentUserInitial").textContent=initials(updated.Name);
+    $("#editNamesDialog").close();announce('Профиль сохранён');await loadConversations();if(active===personalID)await openPersonal();
+  }catch(error){$("#editNamesError").textContent=error.message;}
+};
+const lastNameLabel=document.createElement('label');lastNameLabel.innerHTML='Фамилия<input id="registerLastName" autocomplete="family-name" maxlength="120">';$("#registerName").closest('label').after(lastNameLabel);
 $("#openPasswordForm").onclick = () => { $("#passwordForm").hidden = false; $("#currentPassword").focus(); };
 $("#cancelPasswordForm").onclick = () => { $("#passwordForm").hidden = true; $("#passwordForm").reset(); };
 $("#passwordForm").onsubmit = async (event) => {
@@ -965,7 +976,7 @@ $("#closeRegister").onclick = () => $("#registerDialog").close();
 $("#registerForm").onsubmit = async (event) => {
   event.preventDefault();
   try {
-    await request("/auth/register", { method:"POST", body:JSON.stringify({email:$("#registerEmail").value.trim(),name:$("#registerName").value.trim(),password:$("#registerPassword").value}) });
+    await request("/auth/register", { method:"POST", body:JSON.stringify({email:$("#registerEmail").value.trim(),name:$("#registerName").value.trim(),lastName:$("#registerLastName").value.trim(),password:$("#registerPassword").value}) });
     location.reload();
   } catch (error) { $("#registerError").textContent = error.message; }
 };

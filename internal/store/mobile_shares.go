@@ -51,6 +51,9 @@ func (p *Postgres) CreateSharedMessage(ctx context.Context, actor chat.User, req
 		return chat.Message{}, false, err
 	}
 	m = chat.Message{ID: id(), ConversationID: cid, AuthorID: actor.ID, AuthorName: actor.Name, Body: body, Attachments: attachments, CreatedAt: time.Now().UTC()}
+	if err = tx.QueryRow(ctx, `SELECT chat_author_label($1,$2)`, actor.ID, cid).Scan(&m.AuthorName); err != nil {
+		return chat.Message{}, false, err
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO messages(id,conversation_id,author_id,body,created_at) VALUES($1,$2,$3,$4,$5)`, m.ID, cid, actor.ID, body, m.CreatedAt); err != nil {
 		return chat.Message{}, false, err
 	}

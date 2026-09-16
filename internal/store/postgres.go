@@ -48,7 +48,7 @@ func (p *Postgres) Bootstrap(ctx context.Context, admin chat.User) error {
 	sort.Strings(permissions)
 	if _, err := p.Pool.Exec(ctx, `INSERT INTO users (id, email, display_name, password_hash, permissions)
 		VALUES ($1, $2, $3, '', $4)
-		ON CONFLICT (id) DO UPDATE SET email=EXCLUDED.email, display_name=EXCLUDED.display_name, permissions=EXCLUDED.permissions`,
+		ON CONFLICT (id) DO UPDATE SET email=EXCLUDED.email, permissions=EXCLUDED.permissions`,
 		admin.ID, admin.Email, admin.Name, permissions); err != nil {
 		return fmt.Errorf("bootstrap administrator: %w", err)
 	}

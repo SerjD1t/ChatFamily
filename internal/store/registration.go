@@ -9,7 +9,15 @@ import (
 )
 
 // Register creates a global account without assigning it to a family.
-func (p *Postgres) Register(email, name, password string, minPasswordLength int) (chat.User, error) {
+func (p *Postgres) Register(email, name, password string, minPasswordLength int, surname ...string) (chat.User, error) {
+	last := ""
+	if len(surname) > 0 {
+		last = surname[0]
+	}
+	first, last, validation := NormalizeUserNames(name, last)
+	if validation != nil {
+		return chat.User{}, validation
+	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
 	if email == "" || name == "" || len(password) < minPasswordLength {
@@ -19,8 +27,8 @@ func (p *Postgres) Register(email, name, password string, minPasswordLength int)
 	if err != nil {
 		return chat.User{}, err
 	}
-	u := chat.User{ID: id(), Email: email, Name: name, Permissions: map[chat.Permission]bool{}}
-	_, err = p.Pool.Exec(context.Background(), `INSERT INTO users(id,email,display_name,password_hash,permissions) VALUES($1,$2,$3,$4,'{}')`, u.ID, u.Email, u.Name, string(hash))
+	u := chat.User{ID: id(), Email: email, Name: strings.TrimSpace(first + " " + last), FirstName: first, LastName: last, Permissions: map[chat.Permission]bool{}}
+	_, err = p.Pool.Exec(context.Background(), `INSERT INTO users(id,email,display_name,password_hash,permissions,first_name,last_name) VALUES($1,$2,$3,$4,'{}',$5,$6)`, u.ID, u.Email, u.Name, string(hash), first, last)
 	if err != nil {
 		return chat.User{}, chat.ErrInvalid
 	}

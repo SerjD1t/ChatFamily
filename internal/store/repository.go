@@ -14,7 +14,7 @@ import (
 func (p *Postgres) User(id string) (chat.User, bool) {
 	var u chat.User
 	var permissions []string
-	if err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,permissions,COALESCE(avatar_key,'') FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL); err != nil {
+	if err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,permissions,COALESCE(avatar_key,''),COALESCE(NULLIF(first_name,''),display_name),last_name FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &permissions, &u.AvatarURL, &u.FirstName, &u.LastName); err != nil {
 		return chat.User{}, false
 	}
 	u.Permissions = permissionMap(permissions)
@@ -194,6 +194,9 @@ func (p *Postgres) CreateMessage(a chat.User, cid, body string, attachments []ch
 		return chat.Message{}, e
 	}
 	defer tx.Rollback(ctx)
+	if e = tx.QueryRow(ctx, `SELECT chat_author_label($1,$2)`, a.ID, cid).Scan(&m.AuthorName); e != nil {
+		return chat.Message{}, e
+	}
 	if _, e = tx.Exec(ctx, `INSERT INTO messages(id,conversation_id,author_id,body,created_at) VALUES($1,$2,$3,$4,$5)`, m.ID, cid, a.ID, body, m.CreatedAt); e != nil {
 		return chat.Message{}, e
 	}
@@ -214,7 +217,7 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	if !p.member(cid, a.ID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
+	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
 	if e != nil {
 		return nil, e
 	}
@@ -370,7 +373,7 @@ func (p *Postgres) SearchMessages(actor chat.User, conversationID, query string)
 	if len([]rune(query)) < 2 || len([]rune(query)) > 120 {
 		return nil, chat.ErrInvalid
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id=$1 AND c.archived_at IS NULL AND m.deleted_at IS NULL AND m.body ILIKE '%' || $2 || '%' ORDER BY m.created_at DESC,m.id DESC LIMIT 50`, conversationID, query)
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id=$1 AND c.archived_at IS NULL AND m.deleted_at IS NULL AND m.body ILIKE '%' || $2 || '%' ORDER BY m.created_at DESC,m.id DESC LIMIT 50`, conversationID, query)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +638,7 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,u.display_name,COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
 	if err != nil {
 		return chat.MessagePage{}, err
 	}

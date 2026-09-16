@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"familychat/internal/chat"
@@ -31,80 +30,22 @@ func (p *Postgres) SetUserPreferences(userID string, prefs chat.UserPreferences)
 }
 
 func (p *Postgres) ShoppingItems(actor chat.User, familyID string) ([]chat.ShoppingItem, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
-		return nil, chat.ErrForbidden
-	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT id,family_id,title,planned_date,completed_at,created_by,created_at FROM shopping_items WHERE family_id=$1 ORDER BY completed_at NULLS FIRST,planned_date NULLS LAST,created_at DESC,id DESC`, familyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []chat.ShoppingItem{}
-	for rows.Next() {
-		var item chat.ShoppingItem
-		if err := rows.Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return p.ListNeeds(actor, familyID, false)
 }
-
-func (p *Postgres) AddShoppingItem(actor chat.User, familyID, title string, plannedDate time.Time) (chat.ShoppingItem, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
-		return chat.ShoppingItem{}, chat.ErrForbidden
-	}
-	title = strings.TrimSpace(title)
-	if title == "" || len([]rune(title)) > 160 {
-		return chat.ShoppingItem{}, chat.ErrInvalid
-	}
-	item := chat.ShoppingItem{ID: id(), FamilyID: familyID, Title: title, PlannedDate: &plannedDate, CreatedBy: actor.ID, CreatedAt: time.Now().UTC()}
-	_, err := p.Pool.Exec(context.Background(), `INSERT INTO shopping_items(id,family_id,title,planned_date,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6)`, item.ID, item.FamilyID, item.Title, item.PlannedDate, item.CreatedBy, item.CreatedAt)
-	return item, err
+func (p *Postgres) AddShoppingItem(actor chat.User, familyID, title string, date time.Time) (chat.ShoppingItem, error) {
+	value := date.Format("2006-01-02")
+	return p.SaveNeed(actor, familyID, "", NeedInput{Title: &title, PlannedDate: &value})
 }
-
 func (p *Postgres) ToggleShoppingItem(actor chat.User, familyID, itemID string, completed bool) (chat.ShoppingItem, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
-		return chat.ShoppingItem{}, chat.ErrForbidden
-	}
-	var completedAt *time.Time
-	if completed {
-		now := time.Now().UTC()
-		completedAt = &now
-	}
-	var item chat.ShoppingItem
-	err := p.Pool.QueryRow(context.Background(), `UPDATE shopping_items SET completed_at=$1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING id,family_id,title,planned_date,completed_at,created_by,created_at`, completedAt, itemID, familyID).Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return chat.ShoppingItem{}, chat.ErrNotFound
-	}
-	return item, err
+	return p.SaveNeed(actor, familyID, itemID, NeedInput{Completed: &completed})
 }
-
-func (p *Postgres) SetShoppingPlannedDate(actor chat.User, familyID, itemID string, plannedDate time.Time) (chat.ShoppingItem, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
-		return chat.ShoppingItem{}, chat.ErrForbidden
-	}
-	var item chat.ShoppingItem
-	err := p.Pool.QueryRow(context.Background(), `UPDATE shopping_items SET planned_date=$1,updated_at=now() WHERE id=$2 AND family_id=$3 RETURNING id,family_id,title,planned_date,completed_at,created_by,created_at`, plannedDate, itemID, familyID).Scan(&item.ID, &item.FamilyID, &item.Title, &item.PlannedDate, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return chat.ShoppingItem{}, chat.ErrNotFound
-	}
-	return item, err
+func (p *Postgres) SetShoppingPlannedDate(actor chat.User, familyID, itemID string, date time.Time) (chat.ShoppingItem, error) {
+	value := date.Format("2006-01-02")
+	return p.SaveNeed(actor, familyID, itemID, NeedInput{PlannedDate: &value})
 }
-
 func (p *Postgres) DeleteShoppingItem(actor chat.User, familyID, itemID string) error {
-	var createdBy string
-	err := p.Pool.QueryRow(context.Background(), `SELECT created_by FROM shopping_items WHERE id=$1 AND family_id=$2`, itemID, familyID).Scan(&createdBy)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return chat.ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if createdBy != actor.ID && !p.FamilyAdmin(actor.ID, familyID) {
-		return chat.ErrForbidden
-	}
-	_, err = p.Pool.Exec(context.Background(), `DELETE FROM shopping_items WHERE id=$1 AND family_id=$2`, itemID, familyID)
+	archived := true
+	_, err := p.SaveNeed(actor, familyID, itemID, NeedInput{Archived: &archived})
 	return err
 }
 

@@ -17,7 +17,7 @@ export function canManageFamily(families, familyID) {
 
 export function summarizeShopping(items, now = new Date()) {
   const source = Array.isArray(items) ? items : [];
-  const pending = source.filter((item) => !item.completedAt);
+  const pending = source.filter((item) => !item.completedAt && !item.archivedAt);
   const plannedToday = pending.filter((item) => {
     if (!item.plannedDate) return false;
     const planned = new Date(item.plannedDate);
@@ -25,5 +25,7 @@ export function summarizeShopping(items, now = new Date()) {
       planned.getUTCMonth() === now.getMonth() &&
       planned.getUTCDate() === now.getDate();
   }).length;
-  return { plannedToday, total: pending.length };
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const overdue = pending.filter(item => item.plannedDate && item.plannedDate.slice(0,10) < today).length;
+  return { plannedToday, overdue, total: pending.length };
 }

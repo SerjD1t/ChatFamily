@@ -1,4 +1,6 @@
 const en = {
+  "Дела и покупки": "Tasks and purchases", "Просрочено": "Overdue",
+  "Имя и фамилия":"First and last name", "Фамилия":"Last name", "Фамилия видна другим пользователям чата.":"Your last name is visible to other chat users.", "Профиль сохранён":"Profile saved", "Действия":"Actions", "Активен":"Active",
   "Деактивирован":"Deactivated", "Активировать аккаунт":"Activate account", "Деактивировать аккаунт":"Deactivate account", "Удалить аккаунт":"Delete account", "Подтвердить":"Confirm",
   "Для подтверждения введите email аккаунта":"Enter the account email to confirm",
   "Введите точный email выбранного аккаунта":"Enter the exact email of the selected account",

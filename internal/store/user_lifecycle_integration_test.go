@@ -28,6 +28,10 @@ func TestUserLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Pool.Exec(ctx, `DELETE FROM users WHERE id LIKE 'test_life_%'`)
+	updated, nameErr := p.UpdateUserNames("test_life_member", "Test", "Surname")
+	if nameErr != nil || updated.Name != "Test Surname" || updated.FirstName != "Test" || updated.LastName != "Surname" {
+		t.Fatal("profile names did not round-trip", nameErr)
+	}
 	admin := chat.User{ID: "test_life_admin", Permissions: map[chat.Permission]bool{chat.ManageApplication: true}}
 	old := time.Now().Add(-time.Minute)
 	if !p.SessionAllowed("test_life_member", old) {

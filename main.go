@@ -168,12 +168,13 @@ func (a *app) register(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Name     string `json:"name"`
+		LastName string `json:"lastName"`
 		Password string `json:"password"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	u, err := a.db.Register(in.Email, in.Name, in.Password, a.passwordMinLength())
+	u, err := a.db.Register(in.Email, in.Name, in.Password, a.passwordMinLength(), in.LastName)
 	if err != nil {
 		domainError(w, err)
 		return

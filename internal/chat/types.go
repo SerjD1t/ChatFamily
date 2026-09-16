@@ -17,7 +17,9 @@ const (
 )
 
 type User struct {
-	Disabled           bool `json:"disabled"`
+	FirstName          string `json:"firstName,omitempty"`
+	LastName           string `json:"lastName,omitempty"`
+	Disabled           bool   `json:"disabled"`
 	ID, Email, Name    string
 	AvatarURL          string `json:"avatarUrl,omitempty"`
 	Permissions        map[Permission]bool
@@ -57,13 +59,20 @@ type UserPreferences struct {
 }
 
 type ShoppingItem struct {
-	ID          string     `json:"id"`
-	FamilyID    string     `json:"familyId"`
-	Title       string     `json:"title"`
-	PlannedDate *time.Time `json:"plannedDate,omitempty"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	CreatedBy   string     `json:"createdBy"`
-	CreatedAt   time.Time  `json:"createdAt"`
+	Kind         string     `json:"kind"`
+	Description  string     `json:"description"`
+	AssigneeID   *string    `json:"assigneeId,omitempty"`
+	AssigneeName string     `json:"assigneeName"`
+	ArchivedAt   *time.Time `json:"archivedAt,omitempty"`
+	Version      int64      `json:"version"`
+	CommentCount int        `json:"commentCount"`
+	ID           string     `json:"id"`
+	FamilyID     string     `json:"familyId"`
+	Title        string     `json:"title"`
+	PlannedDate  *time.Time `json:"plannedDate,omitempty"`
+	CompletedAt  *time.Time `json:"completedAt,omitempty"`
+	CreatedBy    string     `json:"createdBy"`
+	CreatedAt    time.Time  `json:"createdAt"`
 }
 type ConversationKind string
 
