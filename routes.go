@@ -60,6 +60,7 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /api/v1/messages/{id}", a.auth(a.editMessage))
 	mux.HandleFunc("DELETE /api/v1/messages/{id}", a.auth(a.deleteMessage))
 	mux.HandleFunc("POST /api/v1/messages/{id}/reactions", a.auth(a.toggleReaction))
+	mux.HandleFunc("GET /api/v1/messages/{id}/reactions", a.auth(a.messageReactions))
 	static := http.FileServer(http.Dir("web"))
 	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, ".js") || r.URL.Path == "/" {

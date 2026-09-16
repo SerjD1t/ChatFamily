@@ -561,6 +561,13 @@ func (p *Postgres) ReactionConversation(actor chat.User, messageID string) (stri
 	}
 	return conversationID, nil
 }
+
+func (p *Postgres) MessageReactions(actor chat.User, messageID string) ([]chat.Reaction, error) {
+	if _, err := p.ReactionConversation(actor, messageID); err != nil {
+		return nil, err
+	}
+	return p.reactions(messageID, actor.ID), nil
+}
 func (p *Postgres) AttachmentObject(userID, attachmentID string) (string, chat.Attachment, error) {
 	var key string
 	var a chat.Attachment

@@ -176,6 +176,7 @@ html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); 
 .messageStatus { font-weight: 700; letter-spacing: -.16em; }
 .messageStatus.read { color: #168ac6; }
 .reactions { display: flex; flex-wrap: wrap; gap: .25rem; margin: .35rem 0; }
+.reactions:empty { display: none; }
 .reaction { min-height: 1.65rem; padding: .18rem .38rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); color: var(--text); font-size: .78rem; }
 .reaction.reacted { border-color: var(--accent); background: var(--surface-selected); }
 .reactionAdd { margin-left: auto; }

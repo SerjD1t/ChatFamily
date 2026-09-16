@@ -716,9 +716,21 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil {
 		go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji)
+		a.hub.publish(realtimeEvent{Type: "reaction.updated", ConversationID: conversationID, MessageID: r.PathValue("id")})
 	}
 	w.WriteHeader(http.StatusNoContent)
-	a.hub.publish(realtimeEvent{Type: "message.updated"})
+}
+func (a *app) messageReactions(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Реакции требуют PostgreSQL"})
+		return
+	}
+	reactions, err := a.db.MessageReactions(a.user(id(r)), r.PathValue("id"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, http.StatusOK, reactions)
 }
 func domainError(w http.ResponseWriter, err error) {
 	if errors.Is(err, chat.ErrForbidden) {
