@@ -1,0 +1,10 @@
+# Build context contains a precompiled Linux/amd64 binary and the web directory.
+# Compile on a development machine or CI, not on the small production VPS.
+FROM alpine:3.21
+RUN adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
+USER app
+WORKDIR /app
+COPY familychat /usr/local/bin/familychat
+COPY web /app/web
+EXPOSE 8080
+ENTRYPOINT ["familychat"]

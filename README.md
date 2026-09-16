@@ -117,6 +117,12 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml up -d --bu
 
 ## Разработка и тесты
 
+На VPS с 1 ГБ памяти не запускайте сборку Go вместе с рабочими сервисами.
+Скомпилируйте бинарный файл `familychat` с `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` локально или в CI.
+Передайте его вместе с каталогом `web` и `deploy/Dockerfile.runtime` в отдельный каталог сборки на сервере.
+Runtime-образ собирается из этого каталога командой `docker build -f Dockerfile.runtime -t chatfamily-app:latest .` без компилятора Go.
+После сохранения предыдущего образа для отката примените обновление через Compose с `up -d --no-build --no-deps app` и проверьте `/healthz`.
+
 ```sh
 go test ./...
 go build ./...
