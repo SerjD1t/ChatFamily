@@ -151,7 +151,7 @@ main { min-height: 100dvh; }
 .actionMenu { top: calc(100% + .35rem); right: 0; }
 .sendMenu { right: 1rem; bottom: 5.25rem; }
 .menuAction { width: 100%; min-height: 2.45rem; padding: .55rem .7rem; background: transparent; color: var(--text); text-align: left; }
-#messages { width: min(100%, 62rem); min-height: 0; margin: 0 auto; padding: 1rem 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+#messages { width: min(100%, 78rem); min-height: 0; margin: 0 auto; padding: 1rem 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .loadingState { display: grid; gap: .6rem; max-width: 30rem; margin: 2rem auto; }
 .skeleton { height: 3.8rem; border-radius: var(--radius-md); background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted)); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
 @keyframes shimmer { to { background-position: -200% 0; } }
@@ -160,13 +160,16 @@ main { min-height: 100dvh; }
 .dateDivider::before, .dateDivider::after { content: ""; height: 1px; flex: 1; background: var(--border); }
 .message { display: flex; padding: .16rem 0; }
 .message.own { justify-content: flex-end; }
-.message .bubble { max-width: min(78%, 44rem); padding: .58rem .72rem; border-radius: .9rem .9rem .9rem .28rem; background: var(--incoming); color: var(--text); }
+.message .bubble { max-width: min(86%, 58rem); padding: .65rem .8rem; border-radius: .9rem .9rem .9rem .28rem; background: var(--incoming); color: var(--text); }
 .message.own .bubble { border-radius: .9rem .9rem .28rem .9rem; background: var(--outgoing); color: var(--text); }
 .message.continued { padding-top: .05rem; }
 .message.continued .messageAuthor, .message.continued .messageAvatar { display: none; }
 .messageAuthor { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent !important; box-shadow: none !important; color: hsl(var(--author-hue) 48% 38%); font-size: .82rem; font-weight: 750; text-align: left; }
 html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); }
 .message p { margin: .22rem 0; white-space: pre-wrap; }
+.messageReply { display: grid; gap: .12rem; margin: .38rem 0 .45rem; padding: .45rem .6rem; border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface-hover); color: var(--text-muted); }
+.messageReply strong { color: var(--accent); font-size: .78rem; }
+.messageReply span { overflow: hidden; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .authorAvatar { width: 1.9rem; height: 1.9rem; border-radius: 50%; object-fit: cover; background: var(--surface-selected); }
 .messageAvatar { float: left; margin: .05rem .5rem .1rem 0; }
 .messageMeta { display: flex; align-items: center; justify-content: flex-end; gap: .32rem; color: var(--text-muted); font-size: .7rem; }
@@ -177,11 +180,16 @@ html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); 
 .reaction.reacted { border-color: var(--accent); background: var(--surface-selected); }
 .reactionAdd { margin-left: auto; }
 .loadOlder { display: block; margin: 0 auto 1rem; }
-.composer { display: flex; width: min(100%, 62rem); align-items: end; gap: .55rem; margin: 0 auto; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+.composer { display: flex; width: min(100%, 78rem); align-items: end; gap: .55rem; margin: 0 auto; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
 .composer textarea { min-height: 2.75rem; margin: 0; padding-block: .66rem; }
 .sendButton { flex: 0 0 2.75rem; width: 2.75rem; padding: .35rem; font-size: 0; }
 .sendButton::before { content: "➤"; font-size: 1.15rem; }
-.replyPreview, .attachmentList { width: min(100%, 62rem); margin: 0 auto; padding: .45rem .7rem; border-left: 3px solid var(--accent); background: var(--surface-muted); color: var(--text-muted); font-size: .8rem; }
+.replyPreview, .attachmentList { width: min(100%, 78rem); margin: 0 auto; padding: .45rem .7rem; border-left: 3px solid var(--accent); background: var(--surface-muted); color: var(--text-muted); font-size: .8rem; }
+.replyPreview { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
+.replyPreviewCopy { display: grid; min-width: 0; gap: .08rem; }
+.replyPreviewCopy small { color: var(--accent); font-weight: 700; }
+.replyPreviewCopy strong, .replyPreviewCopy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replyPreviewCopy strong { color: var(--text); }
 .emojiBar, .reactionPicker { position: absolute; z-index: 8; right: 1rem; bottom: 5.25rem; display: flex; gap: .25rem; padding: .4rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
 .emojiBar button, .reactionPicker button { min-height: 2.2rem; padding: .3rem .45rem; background: transparent; }
 
@@ -257,6 +265,10 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
   :root { --sidebar-width: 17rem; }
   .chat { padding-inline: 1rem; }
   .contextualAction { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+@media (min-width: 768px) {
+  .message .bubble { min-width: min(20rem, 62vw); }
 }
 
 @media (max-width: 767px) {

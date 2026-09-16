@@ -7,6 +7,22 @@ export function initials(name) {
   return (parts.slice(0, 2).map((part) => part[0]).join("") || "?").toUpperCase();
 }
 
+export function firstLine(value, maxLength = 160) {
+  const line = String(value ?? "").split(/\r?\n/, 1)[0].trim();
+  return line.length > maxLength ? `${line.slice(0, maxLength - 1).trimEnd()}…` : line;
+}
+
+export function splitReplyBody(value) {
+  const text = String(value ?? ""), newline = text.indexOf("\n"), header = newline >= 0 ? text.slice(0, newline).replace(/\r$/, "") : text;
+  if (!header.startsWith("↩ ")) return { reply: null, body: text };
+  const separator = header.indexOf(":", 2);
+  if (separator < 0) return { reply: null, body: text };
+  return {
+    reply: { author: header.slice(2, separator).trim(), text: header.slice(separator + 1).trim() },
+    body: newline >= 0 ? text.slice(newline + 1) : "",
+  };
+}
+
 export function formatConversationTime(value, locale = "ru") {
   if (!value) return "";
   const date = new Date(value), now = new Date(), tag = localeTag(locale);

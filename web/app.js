@@ -1,7 +1,7 @@
 import { api, $, request, safe } from "./api.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
-import { formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, todayISO } from "./format.js";
+import { firstLine, formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, splitReplyBody, todayISO } from "./format.js";
 import { applyTranslations, observeTranslations, tr } from "./i18n.js";
 const personalID = "__personal__",
   groupsID = "__groups__",
@@ -154,6 +154,11 @@ function contactMarkup({ id, name, subtitle = "", preview = "", time = "", unrea
 function reactionAddButton(message) {
   return `<button class="reaction reactionAdd" data-message="${message.id}" data-add-reaction="true" title="Добавить реакцию" aria-label="Добавить реакцию">＋</button><button class="reaction reactionReply" data-reply-id="${message.id}" title="Ответить" aria-label="Ответить">↩</button>`;
 }
+function messageBodyMarkup(message) {
+  if (message.deletedAt) return `<p class="messageBody">${tr("Сообщение удалено", userPreferences.locale)}</p>`;
+  const { reply, body } = splitReplyBody(message.body);
+  return `${reply ? `<blockquote class="messageReply" data-no-i18n><strong>${safe(reply.author)}</strong><span>${safe(reply.text)}</span></blockquote>` : ""}<p class="messageBody">${safe(body)}</p>`;
+}
 function openUserCard(userID, name, avatarURL) {
   $("#profileName").textContent = name || "Пользователь";
   $("#profileDetails").textContent = userID === currentUser?.ID ? "Это ваш профиль" : "Участник семейного чата";
@@ -294,7 +299,7 @@ async function openConversation(id, before = "") {
     $("#messages").innerHTML =
       (page.nextBefore ? `<button class="secondary loadOlder" data-load-older="${safe(page.nextBefore)}">Показать более ранние сообщения</button>` : "") +
       groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
-          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><p>${m.deletedAt ? tr("Сообщение удалено", userPreferences.locale) : safe(m.body)}</p>${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     $("#messages").onclick = handleMessages;
     $("#messages").scrollTop = $("#messages").scrollHeight;
@@ -991,15 +996,17 @@ document.addEventListener("click", (event) => {
   const article = button.closest(".message");
   replyDraft = {
     author: article?.querySelector(".messageAuthor")?.textContent || "Сообщение",
-    body: article?.querySelector("p")?.textContent || "",
+    body: firstLine(article?.querySelector(".messageBody")?.textContent || "Вложение"),
   };
   const preview = $("#replyPreview");
   if (preview) {
     preview.hidden = false;
-    preview.textContent = `Ответ: ${replyDraft.author}: ${replyDraft.body}`;
+    $("#replyPreviewAuthor").textContent = replyDraft.author;
+    $("#replyPreviewText").textContent = replyDraft.body;
   }
   $("#body").focus();
 });
+$("#cancelReply").onclick = () => { replyDraft = null; $("#replyPreview").hidden = true; };
 document.addEventListener("pointerdown", (event) => {
   const menu = $("#sendMenu");
   if (!menu.hidden && !event.target.closest("#sendMenu") && !event.target.closest("#sendButton")) menu.hidden = true;
@@ -1029,12 +1036,18 @@ $("#body").addEventListener("input", (event) => {
   event.currentTarget.style.height = "auto";
   event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px`;
 });
+$("#body").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    $("#composer").requestSubmit();
+  }
+});
 $("#composer").addEventListener(
   "submit",
   () => {
     if (!replyDraft) return;
     const body = $("#body");
-    body.value = `↩ ${replyDraft.author}: ${replyDraft.body.slice(0, 120)}\n${body.value}`;
+    body.value = `↩ ${replyDraft.author}: ${firstLine(replyDraft.body)}\n${body.value}`;
     replyDraft = null;
     const preview = $("#replyPreview");
     if (preview) preview.hidden = true;
