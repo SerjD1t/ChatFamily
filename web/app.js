@@ -18,6 +18,7 @@ let conversations = [],
   families = [],
   activeFamilyID = "";
 let editingApplicationUser = null;
+let editingShoppingDateID = null;
 let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false, familyManagerCanEditCategories = false;
 let userPreferences = { locale: "ru", colorScheme: "system" };
 let shoppingCounter = { plannedToday: 0, total: 0 };
@@ -338,12 +339,12 @@ async function openShopping() {
     renderConversations();
     const todayValue = todayISO(), pending = items.filter((item) => !item.completedAt), todayItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) <= todayValue), laterItems = pending.filter((item) => String(item.plannedDate || "").slice(0, 10) > todayValue), done = items.filter((item) => item.completedAt);
     const plannedDateValue = (item) => item.plannedDate ? item.plannedDate.slice(0, 10) : "";
-    const renderItem = (item) => { const canDelete = item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID); return `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label class="shoppingCheck"><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label><label class="shoppingDateControl"><span class="shoppingDateLabel">${safe(formatShoppingDate(plannedDateValue(item), userPreferences.locale))}</span><input type="date" data-shopping-date="${safe(item.id)}" value="${safe(plannedDateValue(item))}" aria-label="Изменить дату"></label>${canDelete ? `<button type="button" class="secondary shoppingMore" data-shopping-more="${safe(item.id)}" aria-label="Другие действия">•••</button><div class="shoppingItemMenu" data-shopping-menu="${safe(item.id)}" hidden><button type="button" class="menuAction dangerText" data-shopping-delete="${safe(item.id)}">Удалить покупку</button></div>` : ""}</li>`; };
+    const renderItem = (item) => { const canDelete = item.createdBy === currentUser.ID || canManageFamily(families, activeFamilyID), plannedDate = plannedDateValue(item); return `<li class="shoppingItem ${item.completedAt ? "completed" : ""}"><label class="shoppingCheck"><input type="checkbox" data-shopping-toggle="${safe(item.id)}" ${item.completedAt ? "checked" : ""}><span>${safe(item.title)}</span></label><button type="button" class="shoppingDateButton" data-shopping-date="${safe(item.id)}" data-shopping-date-value="${safe(plannedDate)}" aria-label="Изменить дату">${safe(formatShoppingDate(plannedDate, userPreferences.locale))}</button>${canDelete ? `<button type="button" class="secondary shoppingMore" data-shopping-more="${safe(item.id)}" aria-label="Другие действия">•••</button><div class="shoppingItemMenu" data-shopping-menu="${safe(item.id)}" hidden><button type="button" class="menuAction dangerText" data-shopping-delete="${safe(item.id)}">Удалить покупку</button></div>` : ""}</li>`; };
     const section = (title, list) => `<section class="shoppingSection"><h3><span>${title}</span><span>${list.length}</span></h3><ul>${list.map(renderItem).join("") || '<li class="muted">Список пуст.</li>'}</ul></section>`;
     $("#messages").innerHTML = `<section class="shopping"><form id="shoppingForm" class="shoppingAdd"><label class="shoppingTitleField"><span class="visuallyHidden">Добавить покупку</span><input id="shoppingTitle" maxlength="160" placeholder="Добавить покупку" required></label><label class="shoppingDateField">Дата<input id="shoppingDate" type="date" value="${todayValue}" required></label><button>Добавить</button></form>${section(tr("Сегодня", userPreferences.locale), todayItems)}${section(tr("Позже", userPreferences.locale), laterItems)}${done.length ? `<details><summary>${tr("Куплено", userPreferences.locale)}: ${done.length}</summary>${section(tr("Куплено", userPreferences.locale), done)}</details>` : ""}</section>`;
     $("#shoppingForm").onsubmit = async (event) => { event.preventDefault(); const title = $("#shoppingTitle").value.trim(), plannedDate = $("#shoppingDate").value; if (!title || !plannedDate) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`, { method: "POST", body: JSON.stringify({ title, plannedDate }) }); announce("Покупка добавлена"); openShopping(); } catch (error) { announce(error.message, "error"); } };
-    $("#messages").onchange = async (event) => { const toggleID = event.target.dataset.shoppingToggle, dateID = event.target.dataset.shoppingDate; if (!toggleID && !dateID) return; try { if (toggleID) await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(toggleID)}`, { method: "PATCH", body: JSON.stringify({ completed: event.target.checked }) }); else { if (!event.target.value) throw Error("Укажите плановую дату покупки"); await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(dateID)}`, { method: "PATCH", body: JSON.stringify({ plannedDate: event.target.value }) }); } openShopping(); } catch (error) { announce(error.message, "error"); openShopping(); } };
-    $("#messages").onclick = async (event) => { const moreID = event.target.closest("[data-shopping-more]")?.dataset.shoppingMore; if (moreID) { const menu = $(`[data-shopping-menu="${CSS.escape(moreID)}"]`); const willOpen = menu.hidden; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); menu.hidden = !willOpen; return; } const id = event.target.closest("[data-shopping-delete]")?.dataset.shoppingDelete; if (!id) return; if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
+    $("#messages").onchange = async (event) => { const toggleID = event.target.dataset.shoppingToggle; if (!toggleID) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(toggleID)}`, { method: "PATCH", body: JSON.stringify({ completed: event.target.checked }) }); openShopping(); } catch (error) { announce(error.message, "error"); openShopping(); } };
+    $("#messages").onclick = async (event) => { const dateButton = event.target.closest("[data-shopping-date]"); if (dateButton) { editingShoppingDateID = dateButton.dataset.shoppingDate; $("#shoppingDateEdit").value = dateButton.dataset.shoppingDateValue || todayValue; $("#shoppingDateError").textContent = ""; $("#shoppingDateDialog").showModal(); return; } const moreID = event.target.closest("[data-shopping-more]")?.dataset.shoppingMore; if (moreID) { const menu = $(`[data-shopping-menu="${CSS.escape(moreID)}"]`); const willOpen = menu.hidden; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); menu.hidden = !willOpen; return; } const id = event.target.closest("[data-shopping-delete]")?.dataset.shoppingDelete; if (!id) return; document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; }); if (!await confirmAction({ title: "Удалить покупку?", message: "Позиция будет удалена из списка.", confirmLabel: "Удалить", destructive: true })) return; try { await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(id)}`, { method: "DELETE" }); openShopping(); } catch (error) { announce(error.message, "error"); } };
   } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
 }
 function renderAttachments() {
@@ -1004,7 +1005,26 @@ document.addEventListener("pointerdown", (event) => {
   if (!menu.hidden && !event.target.closest("#sendMenu") && !event.target.closest("#sendButton")) menu.hidden = true;
   const actions = $("#chatMoreMenu");
   if (!actions.hidden && !event.target.closest("#chatMoreMenu") && !event.target.closest("#chatMore")) actions.hidden = true;
+  if (!event.target.closest("[data-shopping-menu]") && !event.target.closest("[data-shopping-more]"))
+    document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; });
 });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") document.querySelectorAll("[data-shopping-menu]").forEach((item) => { item.hidden = true; });
+});
+$("#cancelShoppingDate").onclick = () => { editingShoppingDateID = null; $("#shoppingDateDialog").close(); };
+$("#shoppingDateForm").onsubmit = async (event) => {
+  event.preventDefault();
+  const plannedDate = $("#shoppingDateEdit").value;
+  if (!editingShoppingDateID || !plannedDate) return;
+  const itemID = editingShoppingDateID;
+  try {
+    await request(`/families/${encodeURIComponent(activeFamilyID)}/shopping/${encodeURIComponent(itemID)}`, { method: "PATCH", body: JSON.stringify({ plannedDate }) });
+    editingShoppingDateID = null;
+    $("#shoppingDateDialog").close();
+    announce("Дата покупки изменена");
+    await openShopping();
+  } catch (error) { $("#shoppingDateError").textContent = error.message; }
+};
 $("#body").addEventListener("input", (event) => {
   event.currentTarget.style.height = "auto";
   event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px`;

@@ -207,9 +207,8 @@ html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); 
 .shoppingCheck { display: flex; min-width: 0; align-items: center; gap: .65rem; margin: 0; }
 .shoppingCheck input { width: 1.2rem; min-height: 1.2rem; flex: 0 0 1.2rem; margin: 0; accent-color: var(--accent); }
 .shoppingCheck span { overflow-wrap: anywhere; }
-.shoppingDateControl { margin: 0; }
-.shoppingDateControl input { width: 9.2rem; min-height: 2.35rem; padding: .35rem .5rem; }
-.shoppingDateLabel { color: var(--text-muted); font-size: .72rem; text-align: right; }
+.shoppingDateButton { min-height: 2.35rem; padding: .35rem .55rem; border: 0; background: transparent; color: var(--text-muted); font-size: .82rem; white-space: nowrap; }
+.shoppingDateButton:hover { background: var(--surface-hover); color: var(--text); }
 .shoppingItem.completed { opacity: .68; }
 .shoppingItem.completed .shoppingCheck span { text-decoration: line-through; }
 .shoppingItemMenu { position: absolute; z-index: 5; top: 3rem; right: 0; min-width: 11rem; padding: .35rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
@@ -283,8 +282,7 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
   .shoppingAdd { grid-template-columns: 1fr; }
   .shoppingAdd button { width: 100%; }
   .shoppingItem { grid-template-columns: minmax(0,1fr) 2.5rem; }
-  .shoppingDateControl { grid-column: 1 / -1; grid-row: 2; padding-left: 1.85rem; }
-  .shoppingDateControl input { width: 100%; }
+  .shoppingDateButton { grid-column: 1; grid-row: 2; justify-self: start; margin-left: 1.85rem; }
   dialog:not(.panelDialog) { width: calc(100vw - 1rem); max-width: none; max-height: calc(100dvh - 1rem); }
   .dialogSurface { min-width: 0; max-height: calc(100dvh - 1rem); padding: 1rem; }
   .panelDialog { width: 100vw; }

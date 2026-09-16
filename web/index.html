@@ -7,7 +7,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon-1254.png" type="image/png">
   <link rel="apple-touch-icon" href="/icon-1254.png">
-  <link rel="stylesheet" href="/style.css?v=20260915-1">
+  <link rel="stylesheet" href="/style.css?v=20260916-1">
   <title>Семейный чат</title>
 </head>
 <body>
@@ -53,7 +53,8 @@
   <dialog id="membersDialog"><form method="dialog" class="dialogSurface admin"><h2 id="membersTitle">Участники группы</h2><ul id="groupMembers" class="adminList"></ul><label id="memberCandidateLabel">Добавить пользователя<select id="memberSelect"></select></label><p id="memberError" class="error" role="alert"></p><p class="actions"><button value="cancel" class="secondary">Закрыть</button><button id="addMember" value="default">Добавить</button></p></form></dialog>
   <dialog id="profileDialog"><section class="dialogSurface profileCard"><img id="profileAvatar" class="profileAvatar" alt=""><input id="profileAvatarFile" type="file" accept="image/jpeg,image/png,image/webp" hidden><button id="changeAvatar" type="button" class="tertiary" hidden>Изменить фото</button><h2 id="profileName"></h2><p id="profileDetails" class="muted"></p><form id="interfaceSettingsForm" class="admin settingsSection" hidden><h3>Интерфейс</h3><label>Язык<select id="interfaceLocale"><option value="ru">Русский</option><option value="en">English</option></select></label><label>Палитра<select id="interfaceColorScheme"><option value="system">Как в системе</option><option value="light">Светлая</option><option value="dark">Тёмная</option><option value="contrast">Контрастная</option></select></label><p id="interfaceSettingsError" class="error" role="alert"></p><p class="actions"><button>Сохранить интерфейс</button></p></form><button id="openInterfaceSettings" type="button" class="secondary" hidden>Язык и палитра</button><button id="openPasswordForm" type="button" class="secondary" hidden>Изменить пароль</button><form id="passwordForm" class="admin settingsSection" hidden><label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label><label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Повторите новый пароль<input id="newPasswordRepeat" type="password" autocomplete="new-password" minlength="12" required></label><p id="passwordError" class="error" role="alert"></p><p class="actions"><button id="cancelPasswordForm" type="button" class="secondary">Отмена</button><button>Сохранить пароль</button></p></form><p class="actions"><button id="closeProfile" type="button" class="secondary">Закрыть</button></p></section></dialog>
   <dialog id="confirmDialog"><section class="dialogSurface admin"><h2 id="confirmTitle">Подтверждение</h2><p id="confirmMessage"></p><p class="actions"><button id="confirmCancel" type="button" class="secondary">Отмена</button><button id="confirmAccept" type="button">Подтвердить</button></p></section></dialog>
+  <dialog id="shoppingDateDialog"><form id="shoppingDateForm" class="dialogSurface admin"><h2>Дата покупки</h2><p class="muted">Выберите новую плановую дату.</p><label>Дата<input id="shoppingDateEdit" type="date" required></label><p id="shoppingDateError" class="error" role="alert"></p><p class="actions"><button id="cancelShoppingDate" type="button" class="secondary">Отмена</button><button>Сохранить</button></p></form></dialog>
   <p id="feedback" class="feedback" role="status" aria-live="polite" hidden></p>
-  <script type="module" src="/app.js?v=20260915-1"></script>
+  <script type="module" src="/app.js?v=20260916-1"></script>
 </body>
 </html>
