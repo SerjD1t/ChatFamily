@@ -1,7 +1,8 @@
 # Build context contains a precompiled Linux/amd64 binary and the web directory.
 # Compile on a development machine or CI, not on the small production VPS.
 FROM alpine:3.21
-RUN adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
+RUN apk add --no-cache ffmpeg poppler-utils util-linux && adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
+RUN command -v ffmpeg && command -v pdftoppm && command -v prlimit
 USER app
 WORKDIR /app
 COPY familychat /usr/local/bin/familychat

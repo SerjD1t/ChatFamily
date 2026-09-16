@@ -15,7 +15,7 @@ function reconcile(parent, incoming) {
       if (current.nodeType === 3) {
         if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
       } else if (current.nodeType === 1) {
-        for (const attr of [...current.attributes]) if (!next.hasAttribute(attr.name) && !(current.nodeName === 'DETAILS' && attr.name === 'open')) current.removeAttribute(attr.name);
+        for (const attr of [...current.attributes]) if (!next.hasAttribute(attr.name) && !(current.nodeName === 'DETAILS' && attr.name === 'open') && !(attr.name === 'hidden' && current.matches('img.attachmentThumbnail') && current.getAttribute('src') === next.getAttribute('src'))) current.removeAttribute(attr.name);
         for (const attr of [...next.attributes]) if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
         if (current.nodeName === 'INPUT' && current.type === 'checkbox') current.checked = next.checked;
         reconcile(current, next);

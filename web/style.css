@@ -367,6 +367,33 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 }
 
 /* Explicit control sizing also normalizes native Safari date/select controls. */
+.attachmentGrid { display:flex; flex-wrap:wrap; gap:.5rem; margin:.5rem 0; clear:both; }
+.storageStats, .storageSettingsGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
+.storageStats > div { display:grid; gap:.3rem; background:var(--surface-muted); padding:.75rem; border-radius:.6rem; }
+.storageDialog fieldset { border:0; padding:0; min-width:0; }
+.storageDialog label { display:grid; gap:.3rem; }
+.storageToggles { display:flex; flex-wrap:wrap; gap:.75rem; margin-bottom:.8rem; }
+.storageToggles label { display:flex; align-items:center; gap:.4rem; }
+.storageToggles input { width:1.1rem; height:1.1rem; margin:0; }
+.storageSettingsGrid input { width:100%; box-sizing:border-box; min-height:2.75rem; }
+.storageActions > div { padding:.7rem 0; border-bottom:1px solid var(--border); }
+.storageActions small { margin-left:.6rem; color:var(--text-muted); }
+.storageActions p { margin:.35rem 0; font-size:.85rem; }
+@media(max-width:600px){.storageStats,.storageSettingsGrid {grid-template-columns:1fr;} .storageActions small{display:block;margin:.4rem 0;}}
+.attachmentCard { display:block; width:15rem; max-width:100%; min-width:0; overflow:hidden; border:1px solid var(--border); border-radius:.6rem; background:var(--surface-muted); color:var(--text); text-decoration:none; }
+.attachmentCard:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.attachmentVisual { display:flex; position:relative; align-items:center; justify-content:center; height:10rem; overflow:hidden; }
+.attachmentFallback { color:var(--text-muted); font-size:1.6rem; }
+.attachmentThumbnail { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:var(--surface-muted); }
+.attachmentThumbnail[hidden] { display:none; }
+.attachmentPlay { position:absolute; inset:auto auto .5rem .5rem; border-radius:50%; background:#000b; color:white; width:2rem; height:2rem; display:grid; place-items:center; }
+.attachmentCaption { display:grid; gap:.2rem; padding:.5rem .6rem; }
+.attachmentCaption > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.attachmentCaption small { color:var(--text-muted); }
+.attachmentFile { display:flex; align-items:center; }
+.attachmentFile .attachmentVisual { width:2.8rem; height:3.5rem; flex:none; }
+.attachmentFile .attachmentCaption { min-width:0; }
+
 .needsAdd { grid-template-columns: minmax(12rem,1fr) auto 10rem auto; }
 .needsFilters { grid-template-columns: minmax(12rem,1fr) auto 10rem; }
 .needsAdd input:not([type=radio]), .needsFilters input:not([type=radio]),

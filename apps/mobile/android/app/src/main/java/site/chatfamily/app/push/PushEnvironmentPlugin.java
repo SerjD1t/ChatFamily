@@ -15,7 +15,8 @@ public class PushEnvironmentPlugin extends Plugin {
         if(id==null) { id=UUID.randomUUID().toString(); prefs.edit().putString("id",id).apply(); }
         JSObject result=new JSObject();
         result.put("installationId",id);
-        result.put("bridgeVersion",2);
+        result.put("bridgeVersion",3);
+        result.put("deviceStorage",true);
         result.put("remoteInterface",true);
         result.put("incomingShares",true);
         result.put("nativePush",true);

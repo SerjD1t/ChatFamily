@@ -48,7 +48,7 @@ export function initIncomingShares({ user, locale, request, onSent }) {
     const url = new URL(link.href), match = url.pathname.match(/^\/api\/v1\/attachments\/([a-zA-Z0-9_-]+)$/);
     if (url.origin !== "https://www.chatfamily.site" || !match) return;
     e.preventDefault();
-    try { await plugin.openAttachment({ id: match[1], name: link.textContent.replace(/^📎\s*/, "").trim() || "attachment" }); }
+    try { await plugin.openAttachment({ id: match[1], name: link.querySelector('.attachmentCaption > span')?.textContent || link.textContent.replace(/^📎\s*/, "").trim() || "attachment" }); }
     catch (err) { error.textContent = err.message; if (!dialog.open) dialog.showModal(); }
   });
   function renderRecipients() {

@@ -18,8 +18,8 @@ android {
         applicationId "site.chatfamily.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "0.3.0"
+        versionCode 4
+        versionName "0.4.0"
         if (firebaseAndroid.applicationId && firebaseAndroid.apiKey && firebaseAndroid.projectId && firebaseAndroid.senderId) {
             resValue 'string', 'google_app_id', firebaseAndroid.applicationId.toString()
             resValue 'string', 'google_api_key', firebaseAndroid.apiKey.toString()

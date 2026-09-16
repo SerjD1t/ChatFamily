@@ -6,7 +6,8 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /familychat .
 
 FROM alpine:3.21
-RUN adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
+RUN apk add --no-cache ffmpeg poppler-utils util-linux && adduser -D -H app && mkdir -p /app/uploads && chown app:app /app/uploads
+RUN command -v ffmpeg && command -v pdftoppm && command -v prlimit
 USER app
 WORKDIR /app
 COPY --from=build /familychat /usr/local/bin/familychat

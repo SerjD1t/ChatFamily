@@ -70,6 +70,12 @@ public final class ShareStore {
         sent.sort(Comparator.comparingLong(j->-j.optLong("sentAt",j.optLong("createdAt"))));
         for(int i=50;i<sent.size();i++) deleteFolder(folder(c,sent.get(i).getString("id")));
     }
+    public static synchronized long pendingBytes(Context c) throws Exception {
+        long total=0;JSONArray jobs=list(c);
+        for(int i=0;i<jobs.length();i++){JSONObject job=jobs.getJSONObject(i);if("sent".equals(job.optString("state")))continue;
+            File[] files=folder(c,job.getString("id")).listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().matches("file-[0-9]+"))total+=file.length();
+        }return total;
+    }
     @SuppressWarnings("deprecation")
     public static synchronized String receive(Context c, Intent intent) throws Exception {
         JSONArray jobs=list(c); int pending=0;
@@ -85,6 +91,7 @@ public final class ShareStore {
         if(uris.size()>MAX_FILES) throw new IOException("Не более 10 файлов за отправку");
         String id=UUID.randomUUID().toString(); File dir=folder(c,id); dir.mkdirs();
         try {
+            AttachmentCache.checkSpace(dir,uris.isEmpty()?0:65536);
             JSONArray files=new JSONArray(); long total=0;
             for(Uri uri:uris) {
                 // Do not accept file:// or paths supplied by another app.
@@ -103,6 +110,7 @@ public final class ShareStore {
                     while((n=in.read(buf))!=-1) {
                         size+=n; total+=n;
                         if(size>MAX_FILE || total>MAX_TOTAL) throw new IOException("Лимит: 25 МиБ на файл, 100 МиБ на отправку");
+                        AttachmentCache.checkSpace(dir,n);
                         out.write(buf,0,n);
                     }
                 }

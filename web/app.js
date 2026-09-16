@@ -4,9 +4,12 @@ import { initUserLifecycle } from "./user-lifecycle.js";
 import { mountDirectory } from "./directory.js";
 import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/runtime.js";
 import { initIncomingShares } from "./mobile/incoming-share.js";
+import { initDeviceStorage } from "./mobile/device-storage.js";
 import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
 import { mountNeeds } from "./family-needs.js";
+import { initStorageAdmin } from "./storage-admin.js";
+import { attachmentMarkup, bindAttachmentFallback } from "./attachments.js";
 import { createReceipts } from "./receipts.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
@@ -391,11 +394,12 @@ async function openConversation(id, before = "") {
     const messageHTML =
       (olderCursor ? `<button class="secondary loadOlder" data-load-older="${safe(olderCursor)}">Показать более ранние сообщения</button>` : "") +
       groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
-          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent")}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${m.deletedAt ? '' : attachmentMarkup(m.attachments, userPreferences.locale)}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent")}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     const currentScroll = scroller.scrollTop;
     const currentlyAtBottom = scroller.scrollHeight - scroller.clientHeight - currentScroll < 60;
     syncMarkup(scroller, messageHTML);
+    bindAttachmentFallback(scroller);
     scroller.dataset.conversationId = id;
     $("#messages").onclick = handleMessages;
     scroller.scrollTop = before && refreshing ? currentScroll + scroller.scrollHeight - oldHeight : !refreshing || currentlyAtBottom ? scroller.scrollHeight : currentScroll;
@@ -511,13 +515,21 @@ async function startApp() {
     $("#administration").hidden = false;
   await loadConversations();
   if (!isNative || (await nativeCapabilities()).incomingShares) initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: (cid) => { scheduleMessageSync(cid); void loadConversations(); } });
+  if (isNative && (await nativeCapabilities()).deviceStorage) initDeviceStorage({locale:()=>userPreferences.locale,confirmAction});
 }
 const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openAdmin(),announce});
+const openStorageAdmin = initStorageAdmin({request,locale:()=>userPreferences.locale,confirmAction});
 async function openAdmin() {
   try {
     const [users, settings] = await Promise.all([request("/users"), request("/application/settings")]);
     $("#minPasswordLength").value = settings.minPasswordLength;
     $("#applicationSettingsError").textContent = "";
+    if (!$("#openStorageAdmin")) {
+      const section=document.createElement('section');section.className='settingsSection';section.setAttribute('data-no-i18n','');
+      const button=document.createElement('button');button.id='openStorageAdmin';button.type='button';button.className='secondary';button.onclick=openStorageAdmin;section.append(button);
+      $("#applicationAdminDialog .panelBody").prepend(section);
+    }
+    $("#openStorageAdmin").textContent=userPreferences.locale==='en'?'Storage':'Хранилище';
     mountDirectory({list:$("#users"),users,admin:true,locale:()=>userPreferences.locale,render:(u) => {
         const admin = !!u.Permissions?.manage_application;
         return `<li class="accountRow"><div class="accountIdentity" data-no-i18n><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small></div><div class="accountStatus">${u.disabled ? '<small>Деактивирован</small>' : '<small>Активен</small>'}${admin ? "<small>Администратор приложения</small>" : ""}</div><details class="accountActions"><summary>Действия</summary><div>${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</div></details></li>`;

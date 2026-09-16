@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"familychat/internal/chat"
@@ -28,12 +29,14 @@ import (
 )
 
 type app struct {
-	cfg     config.Config
-	chat    chat.Backend
-	db      *store.Postgres
-	hub     *hub
-	limiter *rateLimiter
-	fcm     *mobilepush.Client
+	storageMu    sync.RWMutex
+	storagePlans map[string]storagePlan
+	cfg          config.Config
+	chat         chat.Backend
+	db           *store.Postgres
+	hub          *hub
+	limiter      *rateLimiter
+	fcm          *mobilepush.Client
 }
 
 type sessionKey struct{}
@@ -710,6 +713,17 @@ func (a *app) createMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	for _, attachment := range in.Attachments {
+		if !originalKey.MatchString(attachment.ID) || strings.HasPrefix(attachment.ID, "avatar-") {
+			domainError(w, chat.ErrInvalid)
+			return
+		}
+		info, err := os.Lstat(filepath.Join(a.cfg.UploadDirectory, attachment.ID))
+		if err != nil || !info.Mode().IsRegular() {
+			write(w, 400, map[string]string{"error": "Вложение недоступно. Прикрепите файл заново. / Please attach the file again."})
+			return
+		}
 	}
 	m, err := a.chat.CreateMessage(a.user(id(r)), r.PathValue("id"), in.Body, in.Attachments)
 	if err != nil {
