@@ -17,6 +17,7 @@ const (
 )
 
 type User struct {
+	Disabled           bool `json:"disabled"`
 	ID, Email, Name    string
 	AvatarURL          string `json:"avatarUrl,omitempty"`
 	Permissions        map[Permission]bool

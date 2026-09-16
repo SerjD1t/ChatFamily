@@ -28,7 +28,7 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	if !actor.Permissions[chat.ManageUsers] {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT id, email, display_name, permissions, COALESCE(avatar_key,'') FROM users ORDER BY display_name, id`)
+	rows, err := p.Pool.Query(context.Background(), `SELECT id, email, display_name, permissions, COALESCE(avatar_key,''),disabled_at IS NOT NULL FROM users ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func (p *Postgres) Users(actor chat.User) ([]chat.User, error) {
 	for rows.Next() {
 		var user chat.User
 		var permissions []string
-		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &permissions, &user.AvatarURL); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &permissions, &user.AvatarURL, &user.Disabled); err != nil {
 			return nil, err
 		}
 		user.Permissions = permissionMap(permissions)
@@ -111,15 +111,38 @@ func (p *Postgres) UpdateUserPermissions(actor chat.User, userID string, granted
 	}
 	var user chat.User
 	var stored []string
-	err := p.Pool.QueryRow(context.Background(), `UPDATE users SET permissions=$1 WHERE id=$2 RETURNING id,email,display_name,permissions`, permissions, userID).Scan(&user.ID, &user.Email, &user.Name, &stored)
+	ctx := context.Background()
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return user, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return user, err
+	}
+	var allowed bool
+	if err = tx.QueryRow(ctx, `SELECT disabled_at IS NULL AND permissions @> ARRAY['manage_application']::text[] FROM users WHERE id=$1`, actor.ID).Scan(&allowed); err != nil || !allowed {
+		return user, chat.ErrForbidden
+	}
+	var removingLast bool
+	if err = tx.QueryRow(ctx, `SELECT NOT ($1::text[] @> ARRAY['manage_application']::text[]) AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND disabled_at IS NULL AND permissions @> ARRAY['manage_application']::text[]) AND (SELECT count(*) FROM users WHERE disabled_at IS NULL AND permissions @> ARRAY['manage_application']::text[])<=1`, permissions, userID).Scan(&removingLast); err != nil {
+		return user, err
+	}
+	if removingLast {
+		return user, chat.ErrForbidden
+	}
+	err = tx.QueryRow(ctx, `UPDATE users SET permissions=$1 WHERE id=$2 RETURNING id,email,display_name,permissions`, permissions, userID).Scan(&user.ID, &user.Email, &user.Name, &stored)
 	if err != nil {
 		return chat.User{}, chat.ErrNotFound
 	}
 	user.Permissions = permissionMap(stored)
+	if err = tx.Commit(ctx); err != nil {
+		return user, err
+	}
 	return user, nil
 }
 func (p *Postgres) Conversations(userID string) []chat.Conversation {
-	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN (SELECT display_name FROM users WHERE id=$1) ELSE 'Личный диалог' END),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN $1 ELSE '' END),(SELECT COUNT(*) FROM messages unread WHERE unread.conversation_id=c.id AND unread.author_id<>$1 AND unread.deleted_at IS NULL AND unread.created_at>COALESCE(m.last_read_at,'epoch'::timestamptz)),COALESCE(c.family_id,''),COALESCE(latest.body,''),latest.created_at FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN LATERAL (SELECT CASE WHEN deleted_at IS NULL THEN body ELSE 'Сообщение удалено' END AS body,created_at FROM messages WHERE conversation_id=c.id ORDER BY created_at DESC,id DESC LIMIT 1) latest ON true WHERE m.user_id=$1 AND c.archived_at IS NULL ORDER BY latest.created_at DESC NULLS LAST,c.title,c.id`, userID)
+	rows, err := p.Pool.Query(context.Background(), `SELECT c.id,c.kind,COALESCE(NULLIF(c.title,''),(SELECT u.display_name FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN (SELECT display_name FROM users WHERE id=$1) ELSE 'Личный диалог' END),COALESCE((SELECT cm.user_id FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.user_id<>$1 LIMIT 1),CASE WHEN c.kind='direct' THEN $1 ELSE '' END),(SELECT COUNT(*) FROM messages unread WHERE unread.conversation_id=c.id AND unread.author_id<>$1 AND unread.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM message_receipts receipt WHERE receipt.message_id=unread.id AND receipt.user_id=$1 AND receipt.read_at IS NOT NULL)),COALESCE(c.family_id,''),COALESCE(latest.body,''),latest.created_at FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id LEFT JOIN LATERAL (SELECT CASE WHEN deleted_at IS NULL THEN body ELSE 'Сообщение удалено' END AS body,created_at FROM messages WHERE conversation_id=c.id ORDER BY created_at DESC,id DESC LIMIT 1) latest ON true WHERE m.user_id=$1 AND c.archived_at IS NULL ORDER BY latest.created_at DESC NULLS LAST,c.title,c.id`, userID)
 	if err != nil {
 		return []chat.Conversation{}
 	}
@@ -217,9 +240,6 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 		}
 		out[i].Attachments = attachments[out[i].ID]
 		out[i].Reactions = reactions[out[i].ID]
-	}
-	if _, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_read_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -637,6 +657,16 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 		out = out[:limit]
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	messageIDs := make([]string, 0, len(out))
+	for _, message := range out {
+		if message.AuthorID == a.ID {
+			messageIDs = append(messageIDs, message.ID)
+		}
+	}
+	statuses, err := p.ReceiptStatuses(a, messageIDs)
+	if err != nil {
+		return chat.MessagePage{}, err
+	}
 	attachments := p.attachmentsFor(out)
 	reactions := p.reactionsFor(out, a.ID)
 	for i := range out {
@@ -646,40 +676,27 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 		out[i].Attachments = attachments[out[i].ID]
 		out[i].Reactions = reactions[out[i].ID]
 		if out[i].AuthorID == a.ID {
-			out[i].Status = p.messageStatus(out[i])
+			out[i].Status = statuses[out[i].ID]
 		}
-	}
-	if _, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_read_at=now(),last_delivered_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID); err != nil {
-		return chat.MessagePage{}, err
 	}
 	page.Messages = out
 	return page, nil
 }
 func (p *Postgres) MarkDelivered(a chat.User, cid string) error {
-	result, err := p.Pool.Exec(context.Background(), `UPDATE conversation_members SET last_delivered_at=now() WHERE conversation_id=$1 AND user_id=$2`, cid, a.ID)
+	// Legacy conversation-wide acknowledgement: delivery only, never reading.
+	var member bool
+	if err := p.Pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=$1 AND user_id=$2)`, cid, a.ID).Scan(&member); err != nil {
+		return err
+	}
+	if !member {
+		return chat.ErrForbidden
+	}
+	_, err := p.Pool.Exec(context.Background(), `INSERT INTO message_receipts(message_id,user_id) SELECT id,$2 FROM messages WHERE conversation_id=$1 AND author_id<>$2 ON CONFLICT DO NOTHING`, cid, a.ID)
 	if err != nil {
 		return err
 	}
-	if result.RowsAffected() == 0 {
-		return chat.ErrForbidden
-	}
 	return nil
 }
-func (p *Postgres) messageStatus(m chat.Message) string {
-	var recipients, unread, undelivered int
-	err := p.Pool.QueryRow(context.Background(), `SELECT COUNT(*),COUNT(*) FILTER (WHERE last_read_at IS NULL OR last_read_at<$2),COUNT(*) FILTER (WHERE last_delivered_at IS NULL OR last_delivered_at<$2) FROM conversation_members WHERE conversation_id=$1 AND user_id<>$3`, m.ConversationID, m.CreatedAt, m.AuthorID).Scan(&recipients, &unread, &undelivered)
-	if err != nil || recipients == 0 {
-		return "sent"
-	}
-	if unread == 0 {
-		return "read"
-	}
-	if undelivered == 0 {
-		return "delivered"
-	}
-	return "sent"
-}
-
 func avatarURL(userID string) string { return "/api/v1/users/" + userID + "/avatar" }
 func (p *Postgres) SetAvatar(userID, key, contentType string) error {
 	result, err := p.Pool.Exec(context.Background(), `UPDATE users SET avatar_key=$1,avatar_content_type=$2 WHERE id=$3`, key, contentType, userID)

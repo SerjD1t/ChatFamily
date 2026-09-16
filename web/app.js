@@ -1,5 +1,11 @@
 import { api, $, request, safe } from "./api.js";
+import { initJoinFamily } from "./join-family.js";
+import { initUserLifecycle } from "./user-lifecycle.js";
+import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/runtime.js";
+import { initIncomingShares } from "./mobile/incoming-share.js";
+import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
+import { createReceipts } from "./receipts.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
 import { firstLine, formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, splitReplyBody, todayISO } from "./format.js";
@@ -22,6 +28,41 @@ let editingApplicationUser = null;
 let displayedConversation = null, displayedMessages = new Map(), olderCursor = "";
 const reactionRequests = new Map(), reactionWrites = new Set();
 let messageSyncTimer = null, messageSyncRunning = false, messageSyncAgain = false;
+const receipts = createReceipts({
+  request,
+  root: () => currentUser && active === displayedConversation ? $("#messages") : null,
+  userID: () => currentUser?.ID,
+  onRead: () => { void loadConversations().catch(() => {}); },
+});
+let statusRunning = false, statusAgain = false;
+async function refreshStatuses() {
+  if (statusRunning) { statusAgain = true; return; }
+  statusRunning = true;
+  try {
+    do {
+      statusAgain = false;
+      const cid = active;
+      if (!currentUser || displayedConversation !== cid) break;
+      const ids = [...displayedMessages.values()].filter(m => m.authorId === currentUser.ID).map(m => m.id);
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const statuses = await request("/message-statuses", { method: "POST", body: JSON.stringify({ messageIds: ids.slice(offset, offset + 100) }) });
+        if (active !== cid || displayedConversation !== cid) { statusAgain = true; break; }
+        for (const [id, status] of Object.entries(statuses)) {
+          const cached = displayedMessages.get(id);
+          if (cached) cached.status = status;
+          const slot = document.querySelector('[data-status-id="' + CSS.escape(id) + '"]');
+          if (slot) syncMarkup(slot, messageStatus(status));
+        }
+      }
+    } while (statusAgain);
+  } catch (_) { /* Reconciled on the next event/reconnect. */ }
+  finally { statusRunning = false; }
+}
+window.setInterval(() => {
+  if (!currentUser) return;
+  void receipts.deliver();
+  if (document.visibilityState === "visible") void refreshStatuses();
+}, 30000);
 function scheduleMessageSync(id) {
   if (id !== active) return;
   if (messageSyncRunning) { messageSyncAgain = true; return; }
@@ -350,7 +391,7 @@ async function openConversation(id, before = "") {
     const messageHTML =
       (olderCursor ? `<button class="secondary loadOlder" data-load-older="${safe(olderCursor)}">Показать более ранние сообщения</button>` : "") +
       groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
-          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.status ? messageStatus(m.status) : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${(m.attachments || []).map((a) => `<p><a href="${api}/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">📎 ${safe(a.filename)}</a></p>`).join("")}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent")}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     const currentScroll = scroller.scrollTop;
     const currentlyAtBottom = scroller.scrollHeight - scroller.clientHeight - currentScroll < 60;
@@ -358,6 +399,8 @@ async function openConversation(id, before = "") {
     scroller.dataset.conversationId = id;
     $("#messages").onclick = handleMessages;
     scroller.scrollTop = before && refreshing ? currentScroll + scroller.scrollHeight - oldHeight : !refreshing || currentlyAtBottom ? scroller.scrollHeight : currentScroll;
+    void receipts.deliver();
+    void refreshStatuses();
   } catch (e) {
     if (version === loadVersion) {
       if (refreshing) announce(e.message, "error");
@@ -418,14 +461,12 @@ function renderAttachments() {
     : "";
 }
 async function uploadAttachment(file) {
+  const form = new FormData();
+  form.append("file", file, file.name);
   const r = await fetch(`${api}/attachments`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "X-Filename": file.name,
-      "Content-Type": file.type || "application/octet-stream",
-    },
-    body: file,
+    body: form,
   });
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
@@ -473,7 +514,9 @@ async function startApp() {
   if (currentUser.Permissions?.manage_application)
     $("#administration").hidden = false;
   await loadConversations();
+  if (!isNative || (await nativeCapabilities()).incomingShares) initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: (cid) => { scheduleMessageSync(cid); void loadConversations(); } });
 }
+const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openAdmin(),announce});
 async function openAdmin() {
   try {
     const [users, settings] = await Promise.all([request("/users"), request("/application/settings")]);
@@ -482,10 +525,12 @@ async function openAdmin() {
     $("#users").innerHTML = users
       .map((u) => {
         const admin = !!u.Permissions?.manage_application;
-        return `<li><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small>${admin ? "<small>Администратор приложения</small>" : ""}${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button></li>`;
+        return `<li><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small>${u.disabled ? '<small>Деактивирован</small>' : ''}${admin ? "<small>Администратор приложения</small>" : ""}${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</li>`;
       })
       .join("");
     $("#users").onclick = async (e) => {
+      const lifecycle=e.target.closest('[data-user-lifecycle]');
+      if(lifecycle){const user=users.find(u=>u.ID===lifecycle.dataset.userLifecycle);if(user)openUserLifecycle(user,lifecycle.dataset.action);return;}
       const permissionsUserID = e.target.dataset.editPermissions;
       if (permissionsUserID) {
         const user = users.find((u) => u.ID === permissionsUserID); if (user) openApplicationPermissions(user);
@@ -637,6 +682,15 @@ function keyBytes(key) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 async function configurePush() {
+  if (isNative) {
+    if (!(await nativeCapabilities()).nativePush) {
+      $("#pushSettings").hidden = false;
+      $("#pushSettings").onclick = () => announce("Для уведомлений обновите приложение Android", "error");
+      return;
+    }
+    await configureNativePush({user:currentUser,locale:()=>userPreferences.locale,request,announce,openConversation});
+    return;
+  }
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
   const button = $("#pushSettings"),
     registration = await navigator.serviceWorker.register("/sw.js");
@@ -706,7 +760,7 @@ $("#profileAvatarFile").onchange = async (event) => {
   try {
     const response = await fetch(`${api}/auth/avatar`, { method: "POST", credentials: "include", headers: { "Content-Type": file.type }, body: file });
     const result = await response.json().catch(() => ({})); if (!response.ok) throw Error(result.error || "Не удалось сохранить фото");
-    currentUser.AvatarURL = `${result.avatarUrl}?v=${Date.now()}`;
+    currentUser.AvatarURL = `${serverURL(result.avatarUrl)}?v=${Date.now()}`;
     $("#profileAvatar").src = currentUser.AvatarURL;
     event.target.value = "";
   } catch (error) { announce(error.message, "error"); }
@@ -761,6 +815,20 @@ $("#openFamilyMenu").onclick = () => {
   $("#familyMenuDialog").showModal();
 };
 $("#closeFamilyMenu").onclick = () => $("#familyMenuDialog").close();
+initJoinFamily({ request, locale: () => userPreferences.locale, announce, onJoined: async () => {
+  families = await request("/families");
+  if (!families.some(f => f.id === activeFamilyID)) activeFamilyID = families[0]?.id || "";
+  const selector = $("#familySelect");
+  selector.innerHTML = families.map(f => `<option value="${safe(f.id)}">${safe(f.title)}</option>`).join("");
+  selector.value = activeFamilyID; selector.hidden = families.length < 2;
+  localStorage.setItem(activeFamilyKey, activeFamilyID);
+  const family = families.find(f => f.id === activeFamilyID);
+  $("#currentFamilyTitle").textContent = family?.title || "Без семьи";
+  $("#currentFamilyRole").textContent = ({owner:"Владелец",admin:"Администратор",member:"Участник"})[family?.role] || "";
+  $("#newGroup").hidden = $("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
+  $("#onboarding").hidden = families.length > 0;
+  await loadConversations();
+} });
 $("#openCreateFamily").onclick = () => { $("#familyMenuDialog").close(); $("#newFamily").click(); };
 $("#createFirstFamily").onclick = () => $("#newFamily").click();
 $("#manageCurrentFamily").onclick = () => { $("#familyMenuDialog").close(); openFamilyManagement(); };
@@ -813,8 +881,11 @@ $("#familyForm").onsubmit = async (e) => {
   } catch (error) { $("#familyError").textContent = error.message; }
 };
 $("#logout").onclick = async () => {
+  try {
+  if (isNative) await disableNativePush();
   await request("/auth/logout", { method: "POST" });
   location.reload();
+  } catch (_) { announce("Не удалось безопасно выйти. Проверьте соединение и повторите.","error"); }
 };
 $("#manageMembers").onclick = openMembers;
 $("#deleteGroup").onclick = async () => {
@@ -1032,10 +1103,21 @@ $("#retryStart").onclick = bootApp;
 bootApp();
 function connectEvents() {
   const scheme = location.protocol === "https:" ? "wss" : "ws",
-    socket = new WebSocket(`${scheme}://${location.host}/api/v1/events`);
+    socket = new WebSocket(serverOrigin ? `${serverOrigin.replace(/^https:/, "wss:")}/api/v1/events` : `${scheme}://${location.host}/api/v1/events`);
+  socket.onopen = () => {
+    void receipts.deliver();
+    void refreshStatuses();
+    if (active && displayedConversation === active) scheduleMessageSync(active);
+  };
   socket.onmessage = async (message) => {
     try {
       const event = JSON.parse(message.data);
+      if (event.type === "message.status") {
+        if (event.conversationId === active) await refreshStatuses();
+        await loadConversations();
+        return;
+      }
+      if (event.type === "message.created") void receipts.deliver();
       if (event.type === "reaction.updated") {
         if (event.conversationId === active) await refreshReactions(event.messageId);
         return;

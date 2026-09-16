@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -30,13 +31,16 @@ func (h *hub) publish(event realtimeEvent) {
 		}
 	}
 }
-func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+func (h *hub) serve(w http.ResponseWriter, r *http.Request, allowed ...func() bool) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"chatfamily.site"}})
 	if err != nil {
 		return
 	}
 	defer conn.CloseNow()
-	updates := make(chan realtimeEvent, 1)
+	valid := func() bool { return len(allowed) == 0 || allowed[0]() }
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	updates := make(chan realtimeEvent, 64)
 	h.mu.Lock()
 	h.clients[updates] = struct{}{}
 	h.mu.Unlock()
@@ -45,7 +49,14 @@ func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-ticker.C:
+			if !valid() {
+				return
+			}
 		case event := <-updates:
+			if !valid() {
+				return
+			}
 			payload, _ := json.Marshal(event)
 			if conn.Write(context.Background(), websocket.MessageText, payload) != nil {
 				return

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 
 	"familychat/internal/chat"
 	"familychat/internal/config"
+	"familychat/internal/mobilepush"
 	"familychat/internal/store"
 	"github.com/SherClockHolmes/webpush-go"
 )
@@ -31,6 +33,7 @@ type app struct {
 	db      *store.Postgres
 	hub     *hub
 	limiter *rateLimiter
+	fcm     *mobilepush.Client
 }
 
 type sessionKey struct{}
@@ -67,6 +70,13 @@ func main() {
 		backend = postgres
 	}
 	a := &app{cfg: cfg, chat: backend, db: postgres, hub: newHub(), limiter: newRateLimiter(12, time.Minute)}
+	a.fcm, err = mobilepush.New(os.Getenv("FCM_SERVICE_ACCOUNT_JSON"))
+	if settingsPath := os.Getenv("FCM_SETTINGS_FILE"); settingsPath != "" {
+		a.fcm, err = mobilepush.NewFromSettings(settingsPath)
+	}
+	if err != nil {
+		slog.Error("FCM configuration invalid; native push disabled")
+	}
 	mux := a.routes()
 
 	server := &http.Server{Addr: cfg.Addr, Handler: headers(requestDeadline(mux)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
@@ -75,12 +85,25 @@ func main() {
 		slog.Error("сервер остановлен", "error", err)
 	}
 }
-func (a *app) events(w http.ResponseWriter, r *http.Request) { a.hub.serve(w, r) }
+func (a *app) events(w http.ResponseWriter, r *http.Request) {
+	cookie, _ := r.Cookie("family_session")
+	a.hub.serve(w, r, func() bool {
+		if cookie == nil {
+			return false
+		}
+		_, ok := a.verify(cookie.Value)
+		return ok
+	})
+}
 
 func headers(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mobileCORS(w, r) {
+			return
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "frame-src 'none'; object-src 'none'; base-uri 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -176,6 +199,9 @@ func (a *app) authenticate(email, password string) (string, bool) {
 	if a.db != nil {
 		if user, ok := a.db.Authenticate(email, password); ok {
 			return user.ID, true
+		}
+		if !a.db.SessionAllowed("admin", time.Now()) {
+			return "", false
 		}
 	}
 	validEmail := subtle.ConstantTimeCompare([]byte(strings.ToLower(strings.TrimSpace(email))), []byte(strings.ToLower(a.cfg.AdminEmail))) == 1
@@ -373,14 +399,33 @@ func (a *app) avatar(w http.ResponseWriter, r *http.Request) {
 }
 func (a *app) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(strings.TrimSpace(r.Header.Get("X-Filename")))
+	contentType := r.Header.Get("Content-Type")
+	var source io.Reader = r.Body
+	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxUploadBytes+(1<<20))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		reader, err := r.MultipartReader()
+		if err != nil {
+			write(w, 400, map[string]string{"error": "Некорректное вложение"})
+			return
+		}
+		part, err := reader.NextPart()
+		if err != nil || part.FormName() != "file" {
+			write(w, 400, map[string]string{"error": "Не указан файл"})
+			return
+		}
+		filename = filepath.Base(strings.ReplaceAll(part.FileName(), "\\", "/"))
+		contentType = part.Header.Get("Content-Type")
+		source = part
+	} else {
+		source = r.Body
+	}
 	if filename == "." || filename == "" || filename == string(filepath.Separator) {
 		write(w, 400, map[string]string{"error": "Не указано имя файла"})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxUploadBytes)
 	defer r.Body.Close()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
+	data, err := io.ReadAll(io.LimitReader(source, a.cfg.MaxUploadBytes+1))
+	if err != nil || int64(len(data)) > a.cfg.MaxUploadBytes {
 		write(w, 400, map[string]string{"error": "Файл слишком большой или повреждён"})
 		return
 	}
@@ -403,7 +448,6 @@ func (a *app) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		write(w, 500, map[string]string{"error": "Не удалось сохранить файл"})
 		return
 	}
-	contentType := r.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
@@ -426,7 +470,7 @@ func (a *app) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", attachment.ContentType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(attachment.Filename, "\"", "")+"\"")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename}))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
@@ -672,7 +716,7 @@ func (a *app) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 201, m)
-	a.hub.publish(realtimeEvent{Type: "message.updated", ConversationID: m.ConversationID, MessageID: m.ID})
+	a.hub.publish(realtimeEvent{Type: "message.created", ConversationID: m.ConversationID, MessageID: m.ID})
 	go a.notifyMessage(m)
 }
 func (a *app) editMessage(w http.ResponseWriter, r *http.Request) {
@@ -783,7 +827,11 @@ func (a *app) verify(token string) (string, bool) {
 		return "", false
 	}
 	until, err := time.Parse(time.RFC3339, p[1])
-	return p[0], err == nil && time.Now().Before(until)
+	valid := err == nil && time.Now().Before(until)
+	if valid && a.db != nil {
+		valid = a.db.SessionAllowed(p[0], until.Add(-14*24*time.Hour))
+	}
+	return p[0], valid
 }
 
 func (a *app) createUser(w http.ResponseWriter, r *http.Request) {

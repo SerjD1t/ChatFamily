@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -12,7 +13,11 @@ func requestDeadline(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		duration := 20 * time.Second
+		if strings.HasPrefix(r.URL.Path, "/api/v1/mobile/shares/") {
+			duration = 10 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), duration)
 		defer cancel()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

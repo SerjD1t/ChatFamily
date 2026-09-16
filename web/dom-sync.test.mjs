@@ -40,7 +40,7 @@ test('reaction and repeated WebSocket events preserve the chat and composer', { 
   let socket;
   globalThis.WebSocket = class { constructor() { socket = this; } };
   const message = { id: 'm1', authorId: 'u1', authorName: 'User', body: 'Hello', createdAt: '2026-09-16T10:00:00Z', reactions: [] };
-  let reads = 0;
+  let reads = 0, receiptStatus = 'sent';
   globalThis.fetch = async (url, options = {}) => {
     const path = url.replace('/api/v1', '');
     let data;
@@ -50,6 +50,7 @@ test('reaction and repeated WebSocket events preserve the chat and composer', { 
     else if (path === '/password-policy') data = { minPasswordLength: 12 };
     else if (path === '/conversations') data = [{ id: 'c1', kind: 'family', familyId: 'f1', title: 'Family' }];
     else if (path.includes('/messages?')) { reads++; data = { messages: [message] }; }
+    else if (path === '/message-statuses') data = { m1: receiptStatus };
     else if (path === '/messages/m1/reactions') {
       if (options.method === 'POST') { message.reactions = [{ emoji: '👍', count: 1, reacted: true }]; await socket.onmessage({ data: JSON.stringify({ type: 'reaction.updated', conversationId: 'c1', messageId: 'm1' }) }); }
       data = message.reactions;
@@ -75,5 +76,11 @@ test('reaction and repeated WebSocket events preserve the chat and composer', { 
   assert.equal(document.querySelector('[data-message-id="m1"]'), article);
   assert.equal(composer.value, 'Draft');
   assert.equal(document.activeElement, composer);
+  receiptStatus = 'read';
+  await socket.onmessage({ data: JSON.stringify({ type: 'message.status', conversationId: 'c1' }) });
+  assert.equal(reads, baseline + 1, 'receipt event must not fetch history');
+  assert.equal(document.querySelector('[data-message-id="m1"]'), article);
+  assert.match(article.querySelector('[data-status-id="m1"]').innerHTML, /read/);
+  assert.equal(composer.value, 'Draft');
   dom.window.close();
 });

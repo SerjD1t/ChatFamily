@@ -18,3 +18,9 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+
+# Match the VPS uplink MTU to avoid stalled outbound TLS (including Apple Push).
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"

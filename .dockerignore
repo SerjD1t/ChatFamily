@@ -9,3 +9,5 @@ uploads
 .go-cache
 .go-mod-cache
 .test-tmp
+apps
+settings.local.json

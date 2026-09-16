@@ -86,7 +86,7 @@ func (p *Postgres) Authenticate(email, password string) (chat.User, bool) {
 	var user chat.User
 	var permissions []string
 	var passwordHash string
-	err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,password_hash,permissions FROM users WHERE lower(email)=lower($1)`, strings.TrimSpace(email)).Scan(&user.ID, &user.Email, &user.Name, &passwordHash, &permissions)
+	err := p.Pool.QueryRow(context.Background(), `SELECT id,email,display_name,password_hash,permissions FROM users WHERE lower(email)=lower($1) AND disabled_at IS NULL`, strings.TrimSpace(email)).Scan(&user.ID, &user.Email, &user.Name, &passwordHash, &permissions)
 	if err != nil || passwordHash == "" || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return chat.User{}, false
 	}

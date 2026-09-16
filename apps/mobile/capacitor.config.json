@@ -1,0 +1,8 @@
+{
+  "appId": "site.chatfamily.app",
+  "appName": "ChatFamily",
+  "webDir": "www",
+  "server": { "url": "https://www.chatfamily.site", "hostname": "chatfamily.site", "androidScheme": "https", "cleartext": false, "errorPath": "offline.html" },
+  "android": { "allowMixedContent": false, "loggingBehavior": "none" },
+  "plugins": { "PushNotifications": { "presentationOptions": ["sound", "alert"] } }
+}

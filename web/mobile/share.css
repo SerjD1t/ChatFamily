@@ -1,0 +1,21 @@
+dialog.mobileShareDialog { width: min(30rem, calc(100vw - 1.5rem)); max-height: 85dvh; }
+.mobileShareDialog .dialogSurface { min-width: 0; max-height: 83dvh; padding: .9rem; overflow-y: auto; }
+.shareHeader { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.shareHeader h2 { margin: 0; font-size: 1.1rem; }
+.shareHeader .shareClose { background: transparent; color: var(--text-muted); font-size: 1.2rem; }
+.shareHelp { font-size: .85rem; margin: .5rem 0; }
+.shareHistoryLink { display: inline-flex; align-items: center; background: transparent; color: var(--accent); padding: .2rem .1rem; text-decoration: underline; }
+.shareHistoryLink:hover { background: transparent; }
+.mobileShareDialog .shareForm { display: grid; gap: .55rem; margin-block: .6rem; }
+.mobileShareDialog label { margin: 0; font-size: .9rem; }
+.shareJob { padding: .65rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; font-size: .9rem; }
+.shareJob ul { padding-inline-start: 1.1rem; margin-block: .35rem; }
+.shareJob .actions { justify-content: start; gap: .4rem; }
+.shareJob .actions button { font-size: .85rem; }
+.shareRecipientResults { max-height: min(12rem, 30dvh); overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.shareRecipientOption { width: 100%; text-align: left; display: flex; align-items: center; gap: .5rem; border-radius: 0; background: transparent; color: var(--text); padding: .4rem .6rem; font-size: .9rem; }
+.shareRecipientOption[aria-pressed="true"] { background: var(--surface-selected); }
+.shareRecipientOption:hover { background: var(--surface-hover); }
+.shareRecipientOption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shareRecipientSelected { margin: 0; font-size: .85rem; color: var(--accent); }
+.shareHistoryDialog time { display: block; color: var(--text-muted); font-size: .8rem; }

@@ -1,4 +1,5 @@
-export const api = "/api/v1";
+import { serverOrigin, resolveMedia } from "./mobile/runtime.js";
+export const api = serverOrigin + "/api/v1";
 export const $ = (selector) => document.querySelector(selector);
 
 export async function request(path, options = {}) {
@@ -15,7 +16,7 @@ export async function request(path, options = {}) {
       const body = await response.json().catch(() => ({}));
       throw Error(body.error || "Ошибка запроса");
     }
-    return response.status === 204 ? null : response.json();
+    return response.status === 204 ? null : resolveMedia(await response.json());
   } catch (error) {
     if (error.name === "AbortError")
       throw Error("Превышено время ожидания ответа");

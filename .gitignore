@@ -7,3 +7,12 @@ uploads/
 .go-mod-cache/
 familychat.exe
 ssh/
+settings.local.json
+apps/mobile/node_modules/
+apps/mobile/www/
+apps/mobile/android/.gradle/
+apps/mobile/android/**/build/
+apps/mobile/android/local.properties
+*.jks
+*.keystore
+**/google-services.json

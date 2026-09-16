@@ -22,12 +22,22 @@ func (p *Postgres) DeletePushSubscription(actor chat.User, endpoint string) erro
 }
 
 func (p *Postgres) PushSubscriptions(conversationID, excludedUserID string) ([]webpush.Subscription, error) {
-	rows, err := p.Pool.Query(context.Background(), `SELECT s.endpoint,s.p256dh,s.auth FROM push_subscriptions s JOIN conversation_members m ON m.user_id=s.user_id WHERE m.conversation_id=$1 AND s.user_id<>$2`, conversationID, excludedUserID)
-	if err != nil { return nil, err }
+	rows, err := p.Pool.Query(context.Background(), `SELECT s.endpoint,s.p256dh,s.auth FROM push_subscriptions s JOIN conversation_members m ON m.user_id=s.user_id JOIN users u ON u.id=s.user_id WHERE m.conversation_id=$1 AND s.user_id<>$2 AND u.disabled_at IS NULL`, conversationID, excludedUserID)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []webpush.Subscription
-	for rows.Next() { var s webpush.Subscription; if err := rows.Scan(&s.Endpoint,&s.Keys.P256dh,&s.Keys.Auth); err != nil { return nil, err }; out=append(out,s) }
+	for rows.Next() {
+		var s webpush.Subscription
+		if err := rows.Scan(&s.Endpoint, &s.Keys.P256dh, &s.Keys.Auth); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
 	return out, rows.Err()
 }
 
-func (p *Postgres) RemovePushEndpoint(endpoint string) { _, _ = p.Pool.Exec(context.Background(), `DELETE FROM push_subscriptions WHERE endpoint=$1`, endpoint) }
+func (p *Postgres) RemovePushEndpoint(endpoint string) {
+	_, _ = p.Pool.Exec(context.Background(), `DELETE FROM push_subscriptions WHERE endpoint=$1`, endpoint)
+}
