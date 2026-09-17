@@ -1,4 +1,10 @@
 const en = {
+  "Редактировать участника": "Edit family member",
+  "Редактировать": "Edit",
+  "Роли доступа меняет только владелец семьи.": "Only the family owner can change access roles.",
+  "Роль доступа": "Access role",
+  "Категории": "Categories",
+  "Оформление и язык": "Appearance and language",
   "Дела и покупки": "Tasks and purchases", "Просрочено": "Overdue",
   "Имя и фамилия":"First and last name", "Фамилия":"Last name", "Фамилия видна другим пользователям чата.":"Your last name is visible to other chat users.", "Профиль сохранён":"Profile saved", "Действия":"Actions", "Активен":"Active",
   "Деактивирован":"Deactivated", "Активировать аккаунт":"Activate account", "Деактивировать аккаунт":"Deactivate account", "Удалить аккаунт":"Delete account", "Подтвердить":"Confirm",

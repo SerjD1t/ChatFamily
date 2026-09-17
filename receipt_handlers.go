@@ -37,6 +37,7 @@ func (a *app) pendingDeliveries(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, ids)
 }
 func (a *app) receiptStatuses(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
 	if a.db == nil {
 		write(w, 503, map[string]string{"error": "Требуется PostgreSQL"})
 		return
@@ -47,10 +48,33 @@ func (a *app) receiptStatuses(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	if r.URL.Query().Get("details") == "1" {
+		statuses, err := a.db.ReceiptSummaries(a.user(id(r)), in.MessageIDs)
+		if err != nil {
+			domainError(w, err)
+			return
+		}
+		write(w, 200, statuses)
+		return
+	}
 	statuses, err := a.db.ReceiptStatuses(a.user(id(r)), in.MessageIDs)
 	if err != nil {
 		domainError(w, err)
 		return
 	}
 	write(w, 200, statuses)
+}
+
+func (a *app) receiptDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "Требуется PostgreSQL"})
+		return
+	}
+	recipients, err := a.db.ReceiptDetails(a.user(id(r)), r.PathValue("id"))
+	if err != nil {
+		domainError(w, err)
+		return
+	}
+	write(w, 200, map[string]any{"recipients": recipients, "membership": "current"})
 }

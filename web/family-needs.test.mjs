@@ -20,6 +20,28 @@ test('counters exclude completed, archived and undated from today/overdue',()=>{
  assert.deepEqual(summarizeShopping(items,new Date(2026,8,16,12)),{plannedToday:1,overdue:1,total:3});
 });
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
+test('list first, visible filter summary, creation retry and duplicate protection',{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'));};
+ const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
+ try{
+  const host=document.querySelector('main');let calls=0,release,fail=true;
+  const args={host,familyID:'list-first',items,request:async()=>{calls++;await new Promise(resolve=>release=resolve);if(fail)throw new Error('Try again');return {};},refresh:async()=>{},announce:()=>{}};
+  mountNeeds(args);
+  const create=host.querySelector('.needCreateDialog'),filters=host.querySelector('.needsFilters'),search=host.querySelector('[data-search]');
+  assert.equal(create.open,false);assert.equal(filters.hidden,true);assert.equal(host.querySelectorAll('.needRow').length,3);
+  search.click();const query=host.querySelector('[name=query]');query.value='Хлеб';query.dispatchEvent(new dom.window.Event('input',{bubbles:true}));search.click();
+  assert.equal(filters.hidden,true);assert.equal(search.getAttribute('aria-expanded'),'false');assert.equal(host.querySelector('.needActiveFilters').hidden,false);assert.match(host.querySelector('[data-filter-summary]').textContent,/Хлеб/);
+  host.querySelector('[data-clear]').click();assert.equal(host.querySelectorAll('.needRow').length,3);
+  host.querySelector('[name=status][value=done]').click();assert.ok(host.querySelector('[data-id="3"]'));
+  host.querySelector('[data-add]').click();const form=create.querySelector('form');form.elements.title.value='Draft';
+  host.querySelector('[data-create-close]').click();host.querySelector('[data-add]').click();assert.equal(form.elements.title.value,'Draft');
+  const submit=()=>form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));submit();submit();assert.equal(calls,1);
+  release();await settle();assert.equal(create.open,true);assert.equal(form.elements.title.value,'Draft');assert.match(create.textContent,/Try again/);
+  fail=false;submit();release();await settle();assert.equal(create.open,false);assert.equal(form.elements.title.value,'');assert.equal(host.querySelector('[name=status]:checked').value,'active');
+ }finally{dom.window.close();delete globalThis.document;}
+});
 test('background update retains quick-add draft, filters, focus and row nodes',{skip:!JSDOM},()=>{
  const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;
  try{
@@ -44,6 +66,7 @@ test('user-provided titles cannot inject HTML attributes',{skip:!JSDOM},()=>{
 });
 test('type switch submits selected kind and filter uses checked radio',{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;
+ dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
  try{
   const host=document.querySelector('main');let sent;
   mountNeeds({host,familyID:'test',items,request:async(_,options)=>{sent=JSON.parse(options.body);},refresh:async()=>{},announce:()=>{}});
@@ -69,6 +92,7 @@ test('detail sends versioned updates and comments do not erase an unsaved edit',
  const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
  try{
   const host=document.querySelector('main');mountNeeds({host,familyID:'f1',items:[item],request,refresh:async()=>{},announce:()=>{}});
+  host.scrollTop=180;
   host.querySelector('[data-open]').click();await settle();
   assert.equal(host.querySelector('[data-edit]').hidden,true);
   assert.match(host.querySelector('[data-summary]').textContent,/Хлеб/);
@@ -81,6 +105,7 @@ test('detail sends versioned updates and comments do not erase an unsaved edit',
   assert.match(host.querySelector('[data-comments]').textContent,/Hello/);
   const edit=host.querySelector('[data-edit]');edit.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
   const patch=calls.find(c=>c.options?.method==='PATCH');assert.equal(JSON.parse(patch.options.body).version,1);
-  assert.equal(JSON.parse(patch.options.body).title,'Unsaved edit');assert.equal(host.querySelector('dialog'),null);
+  assert.equal(JSON.parse(patch.options.body).title,'Unsaved edit');assert.equal(host.querySelector('.needDialog'),null);
+  assert.equal(host.scrollTop,180);assert.equal(document.activeElement,host.querySelector('[data-open]'));
  }finally{dom.window.close();delete globalThis.document;delete globalThis.FormData;}
 });

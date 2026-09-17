@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"familychat/internal/chat"
+	"familychat/internal/store"
 )
 
 func (a *app) updateFamilyMember(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +23,10 @@ func (a *app) updateFamilyMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.db.UpdateFamilyMember(a.user(id(r)), r.PathValue("familyID"), r.PathValue("userID"), in.Role, in.Relationship, in.Categories); err != nil {
+		if errors.Is(err, store.ErrLastFamilyOwner) {
+			write(w, http.StatusConflict, map[string]string{"error": "Сначала назначьте другого активного владельца семьи"})
+			return
+		}
 		domainError(w, err)
 		return
 	}

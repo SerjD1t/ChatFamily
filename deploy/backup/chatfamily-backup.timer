@@ -1,0 +1,11 @@
+[Unit]
+Description=Check ChatFamily backup schedule each minute
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec=60
+AccuracySec=10
+Unit=chatfamily-backup.service
+
+[Install]
+WantedBy=timers.target

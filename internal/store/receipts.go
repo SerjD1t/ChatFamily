@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"familychat/internal/chat"
+	"time"
 )
 
 // RecordReceipts acknowledges exact messages, never messages merely fetched by a GET.
@@ -57,6 +58,25 @@ func (p *Postgres) PendingDeliveries(actor chat.User) ([]string, error) {
 }
 
 func (p *Postgres) ReceiptStatuses(actor chat.User, ids []string) (map[string]string, error) {
+	summaries, err := p.ReceiptSummaries(actor, ids)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]string{}
+	for id, summary := range summaries {
+		result[id] = summary.Status
+	}
+	return result, nil
+}
+
+type ReceiptSummary struct {
+	Status    string `json:"status"`
+	Total     int    `json:"total"`
+	Delivered int    `json:"delivered"`
+	Read      int    `json:"read"`
+}
+
+func (p *Postgres) ReceiptSummaries(actor chat.User, ids []string) (map[string]ReceiptSummary, error) {
 	if len(ids) > 100 {
 		return nil, chat.ErrInvalid
 	}
@@ -64,7 +84,7 @@ func (p *Postgres) ReceiptStatuses(actor chat.User, ids []string) (map[string]st
  WHEN count(cm.user_id)=0 THEN 'sent'
  WHEN count(r.read_at)=count(cm.user_id) THEN 'read'
  WHEN count(r.delivered_at)=count(cm.user_id) THEN 'delivered'
- ELSE 'sent' END FROM messages m
+ ELSE 'sent' END,count(cm.user_id),count(r.delivered_at),count(r.read_at) FROM messages m
  JOIN conversation_members viewer ON viewer.conversation_id=m.conversation_id AND viewer.user_id=$1
  LEFT JOIN conversation_members cm ON cm.conversation_id=m.conversation_id AND cm.user_id<>m.author_id
  LEFT JOIN message_receipts r ON r.message_id=m.id AND r.user_id=cm.user_id
@@ -73,13 +93,58 @@ func (p *Postgres) ReceiptStatuses(actor chat.User, ids []string) (map[string]st
 		return nil, err
 	}
 	defer rows.Close()
-	result := map[string]string{}
+	result := map[string]ReceiptSummary{}
 	for rows.Next() {
-		var id, status string
-		if err := rows.Scan(&id, &status); err != nil {
+		var id string
+		var summary ReceiptSummary
+		if err := rows.Scan(&id, &summary.Status, &summary.Total, &summary.Delivered, &summary.Read); err != nil {
 			return nil, err
 		}
-		result[id] = status
+		result[id] = summary
 	}
 	return result, rows.Err()
+}
+
+type ReceiptRecipient struct {
+	UserID      string     `json:"userId"`
+	Name        string     `json:"name"`
+	DeliveredAt *time.Time `json:"deliveredAt"`
+	ReadAt      *time.Time `json:"readAt"`
+}
+
+// Only the author, while still a member, may inspect current recipients.
+// LEFT JOIN retains one authorization row for a self-dialog with no recipients.
+func (p *Postgres) ReceiptDetails(actor chat.User, messageID string) ([]ReceiptRecipient, error) {
+	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,COALESCE(chat_author_label(u.id,m.conversation_id),''),r.delivered_at,r.read_at
+ FROM messages m
+ JOIN conversation_members viewer ON viewer.conversation_id=m.conversation_id AND viewer.user_id=$1
+ LEFT JOIN conversation_members cm ON cm.conversation_id=m.conversation_id AND cm.user_id<>m.author_id
+ LEFT JOIN users u ON u.id=cm.user_id
+ LEFT JOIN message_receipts r ON r.message_id=m.id AND r.user_id=cm.user_id
+ WHERE m.id=$2 AND m.author_id=$1 ORDER BY u.display_name,u.id`, actor.ID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []ReceiptRecipient{}
+	found := false
+	for rows.Next() {
+		found = true
+		var uid *string
+		var entry ReceiptRecipient
+		if err := rows.Scan(&uid, &entry.Name, &entry.DeliveredAt, &entry.ReadAt); err != nil {
+			return nil, err
+		}
+		if uid != nil {
+			entry.UserID = *uid
+			result = append(result, entry)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, chat.ErrNotFound
+	}
+	return result, nil
 }

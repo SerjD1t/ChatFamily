@@ -11,3 +11,5 @@ uploads
 .test-tmp
 apps
 settings.local.json
+**/__pycache__/
+**/*.pyc

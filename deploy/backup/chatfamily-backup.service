@@ -1,0 +1,23 @@
+[Unit]
+Description=ChatFamily encrypted offsite backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/chatfamily/deploy/backup/worker.py tick
+ExecStopPost=/usr/bin/python3 /opt/chatfamily/deploy/backup/worker.py recover
+TimeoutStartSec=110min
+TimeoutStopSec=150
+KillMode=control-group
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=384M
+CPUQuota=70%
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=null
+StandardError=journal

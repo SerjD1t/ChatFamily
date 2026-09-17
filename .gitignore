@@ -8,6 +8,8 @@ uploads/
 familychat.exe
 ssh/
 settings.local.json
+__pycache__/
+*.pyc
 apps/mobile/node_modules/
 apps/mobile/www/
 apps/mobile/android/.gradle/

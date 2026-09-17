@@ -9,8 +9,12 @@ import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
 import { mountNeeds } from "./family-needs.js";
 import { initStorageAdmin } from "./storage-admin.js";
+import { initBackupAdmin } from "./backup-admin.js";
+import { initApplicationFamilies } from "./application-families.js";
 import { attachmentMarkup, bindAttachmentFallback } from "./attachments.js";
 import { createReceipts } from "./receipts.js";
+import { createAppearanceSettings } from "./appearance.js";
+import { createReceiptDetails, receiptButton } from "./receipt-details.js";
 import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
 import { firstLine, formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, splitReplyBody, todayISO } from "./format.js";
@@ -40,6 +44,7 @@ const receipts = createReceipts({
   onRead: () => { void loadConversations().catch(() => {}); },
 });
 let statusRunning = false, statusAgain = false;
+const receiptDetails = createReceiptDetails({request,locale:()=>userPreferences.locale});
 async function refreshStatuses() {
   if (statusRunning) { statusAgain = true; return; }
   statusRunning = true;
@@ -50,16 +55,18 @@ async function refreshStatuses() {
       if (!currentUser || displayedConversation !== cid) break;
       const ids = [...displayedMessages.values()].filter(m => m.authorId === currentUser.ID).map(m => m.id);
       for (let offset = 0; offset < ids.length; offset += 100) {
-        const statuses = await request("/message-statuses", { method: "POST", body: JSON.stringify({ messageIds: ids.slice(offset, offset + 100) }) });
+        const statuses = await request("/message-statuses?details=1", { method: "POST", body: JSON.stringify({ messageIds: ids.slice(offset, offset + 100) }) });
         if (active !== cid || displayedConversation !== cid) { statusAgain = true; break; }
-        for (const [id, status] of Object.entries(statuses)) {
+        for (const [id, info] of Object.entries(statuses)) {
+          const status = typeof info === 'string' ? info : info.status;
           const cached = displayedMessages.get(id);
-          if (cached) cached.status = status;
+          if (cached) { cached.status = status; if(typeof info === 'object') cached.receiptSummary=info; }
           const slot = document.querySelector('[data-status-id="' + CSS.escape(id) + '"]');
-          if (slot) syncMarkup(slot, messageStatus(status));
+          if (slot) syncMarkup(slot, messageStatus(status,id));
         }
       }
     } while (statusAgain);
+    void receiptDetails.refresh();
   } catch (_) { /* Reconciled on the next event/reconnect. */ }
   finally { statusRunning = false; }
 }
@@ -113,7 +120,7 @@ async function toggleMessageReaction(messageID, emoji) {
   finally { reactionWrites.delete(messageID); }
 }
 let editingShoppingDateID = null;
-let familyMemberDrafts = new Map(), familyMemberSelection = new Set(), familyManagerIsOwner = false, familyManagerCanEditCategories = false;
+let familyMemberDrafts = new Map(), editingFamilyMember = null, familyMemberSaving = false, familyManagerIsOwner = false, familyManagerCanEditCategories = false;
 let userPreferences = { locale: "ru", colorScheme: "system" };
 let shoppingCounter = { plannedToday: 0, total: 0 };
 const familyCategoryDefinitions = [
@@ -138,7 +145,7 @@ function applyPasswordPolicy(policy) {
 }
 function applyInterfacePreferences() {
   document.documentElement.lang = userPreferences.locale || "ru";
-  document.documentElement.dataset.theme = userPreferences.colorScheme || "system";
+  appearance.applySaved();
   mobileBackButton.textContent = `‹ ${tr("Назад", userPreferences.locale || "ru")}`;
   applyTranslations(userPreferences.locale || "ru");
 }
@@ -160,6 +167,9 @@ mobileBackButton.textContent = "‹ Назад";
 mobileBackButton.hidden = true;
 document.querySelector(".chatHead")?.prepend(mobileBackButton);
 function openMobileContent() {
+  // Shared section visibility applies on desktop too, including accounts without a family.
+  $("#onboarding").hidden = true;
+  $("#messages").hidden = false;
   if (!matchMedia("(max-width: 767px)").matches) return;
   document.body.classList.add("mobileContentOpen");
   mobileBackButton.hidden = false;
@@ -227,7 +237,8 @@ async function loadConversations() {
     else { const family = conversations.find((c) => c.kind === "family"); if (family) openConversation(family.id); }
   }
 }
-function messageStatus(status) {
+function messageStatus(status,id) {
+  if(id) return receiptButton(id,status,displayedMessages.get(id)?.receiptSummary,conversations.find(c=>c.id===active)?.kind!=='direct',userPreferences.locale);
   const label = tr({ sent: "Отправлено", delivered: "Получено", read: "Прочитано" }[status] || "", userPreferences.locale);
   return {
     sent: `<span class="messageStatus sent" title="${safe(label)}" aria-label="${safe(label)}">✓</span>`,
@@ -273,6 +284,8 @@ function openUserCard(userID, name, avatarURL) {
   $("#passwordError").textContent = "";
   $("#profileDialog").showModal();
 }async function handleMessages(event) {
+  const info=event.target.closest('[data-receipt-info]');
+  if(info){receiptDetails.open(info.dataset.receiptInfo,info);return;}
   const older = event.target.closest("[data-load-older]");
   if (older) { openConversation(active, older.dataset.loadOlder); return; }
   const author = event.target.closest("[data-user-name]");
@@ -352,6 +365,7 @@ async function startDirect(userID) {
   }
 }
 async function openConversation(id, before = "") {
+  if(active!==id)receiptDetails.close();
   const refreshing = active === id && displayedConversation === id && $("#messages").dataset.conversationId === id;
   const scroller = $("#messages"), oldHeight = scroller.scrollHeight;
   if (id === personalID) return openPersonal();
@@ -389,12 +403,12 @@ async function openConversation(id, before = "") {
     if (version !== loadVersion || id !== active) return;
     if (displayedConversation !== id) { displayedMessages = new Map(); olderCursor = ""; displayedConversation = id; }
     if (!refreshing || before) olderCursor = page.nextBefore || "";
-    for (const message of page.messages || []) displayedMessages.set(message.id, message);
+    for (const message of page.messages || []) displayedMessages.set(message.id, {...message,receiptSummary:displayedMessages.get(message.id)?.receiptSummary});
     const list = [...displayedMessages.values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt) || a.id.localeCompare(b.id));
     const messageHTML =
       (olderCursor ? `<button class="secondary loadOlder" data-load-older="${safe(olderCursor)}">Показать более ранние сообщения</button>` : "") +
       groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
-          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${m.deletedAt ? '' : attachmentMarkup(m.attachments, userPreferences.locale)}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent")}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${m.deletedAt ? '' : attachmentMarkup(m.attachments, userPreferences.locale)}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent",m.id)}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     const currentScroll = scroller.scrollTop;
     const currentlyAtBottom = scroller.scrollHeight - scroller.clientHeight - currentScroll < 60;
@@ -519,6 +533,8 @@ async function startApp() {
 }
 const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openAdmin(),announce});
 const openStorageAdmin = initStorageAdmin({request,locale:()=>userPreferences.locale,confirmAction});
+const openBackupAdmin = initBackupAdmin({request,locale:()=>userPreferences.locale,confirmAction});
+const openApplicationFamilies = initApplicationFamilies({request,locale:()=>userPreferences.locale,confirmAction});
 async function openAdmin() {
   try {
     const [users, settings] = await Promise.all([request("/users"), request("/application/settings")]);
@@ -530,6 +546,16 @@ async function openAdmin() {
       $("#applicationAdminDialog .panelBody").prepend(section);
     }
     $("#openStorageAdmin").textContent=userPreferences.locale==='en'?'Storage':'Хранилище';
+    if (!$("#openBackupAdmin")) {
+      const button=document.createElement('button');button.id='openBackupAdmin';button.type='button';button.className='secondary';button.onclick=openBackupAdmin;
+      $("#openStorageAdmin").parentElement.append(button);
+    }
+    $("#openBackupAdmin").textContent=userPreferences.locale==='en'?'Backups':'Резервные копии';
+    if (!$("#openApplicationFamilies")) {
+      const button=document.createElement('button');button.id='openApplicationFamilies';button.type='button';button.className='secondary';button.onclick=openApplicationFamilies;
+      $("#applicationAdminDialog .panelBody").prepend(button);
+    }
+    $("#openApplicationFamilies").textContent=userPreferences.locale==='en'?'Families':'Семьи';
     mountDirectory({list:$("#users"),users,admin:true,locale:()=>userPreferences.locale,render:(u) => {
         const admin = !!u.Permissions?.manage_application;
         return `<li class="accountRow"><div class="accountIdentity" data-no-i18n><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small></div><div class="accountStatus">${u.disabled ? '<small>Деактивирован</small>' : '<small>Активен</small>'}${admin ? "<small>Администратор приложения</small>" : ""}</div><details class="accountActions"><summary>Действия</summary><div>${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</div></details></li>`;
@@ -628,12 +654,10 @@ async function openFamilyManagement() {
     const family = activeFamily(families, activeFamilyID);
     familyManagerIsOwner = family?.role === "owner";
     familyManagerCanEditCategories = family?.role === "owner" || family?.role === "admin";
-    familyMemberSelection = new Set();
-    familyMemberDrafts = new Map(members.map((user) => [user.ID, { ...user, familyCategories: [...(user.familyCategories || [])].sort(), original: JSON.stringify({ role: user.familyRole, relationship: user.familyRelationship || "Неопределено", categories: [...(user.familyCategories || [])].sort() }) }]));
+
+    familyMemberDrafts = new Map(members.map((user) => [user.ID, { ...user, familyCategories: [...(user.familyCategories || [])].sort() }]));
     $("#familyAdminTitle").textContent = `Семья: ${family?.title || ""}`;
     $("#familyAdminError").textContent = "";
-    $("#familyBulkEdit").hidden = !familyManagerCanEditCategories;
-    $("#familyBulkCategories").innerHTML = familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" value="${value}"> ${label}</label>`).join("");
     $("#familyMemberSearch").value = "";
     $("#familyMemberRoleFilter").value = "";
     $("#familyMemberCategoryFilter").value = "";
@@ -642,14 +666,6 @@ async function openFamilyManagement() {
   } catch (error) { announce(error.message, "error"); }
 }
 
-function familyDraftDirty(draft) {
-  return JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship || "Неопределено", categories: [...(draft.familyCategories || [])].sort() }) !== draft.original;
-}
-function updateFamilyDirtyState() {
-  const dirty = [...familyMemberDrafts.values()].some(familyDraftDirty);
-  $("#familyDirtyNotice").hidden = !dirty;
-  $("#saveAllFamilyMembers").hidden = !dirty;
-}
 function renderFamilyMembers() {
   const query = $("#familyMemberSearch").value.trim().toLocaleLowerCase();
   const role = $("#familyMemberRoleFilter").value, category = $("#familyMemberCategoryFilter").value;
@@ -658,28 +674,52 @@ function renderFamilyMembers() {
     return (!query || `${user.Name} ${user.Email}`.toLocaleLowerCase().includes(query)) && (!role || user.familyRole === role) && (!category || (category === "none" ? !categories.length : categories.includes(category)));
   });
   $("#familyMembers").innerHTML = visible.length ? visible.map((user) => `
-    <li class="familyMemberEditor" data-family-member="${safe(user.ID)}">
-      ${familyManagerCanEditCategories ? `<label class="familySelection"><input type="checkbox" data-family-select="${safe(user.ID)}" ${familyMemberSelection.has(user.ID) ? "checked" : ""}> Выбрать</label>` : ""}
-      <strong>${safe(user.Name)}</strong><small>${safe(user.Email)}</small>
-      <label>Роль доступа<select data-family-role="${safe(user.ID)}" ${familyManagerIsOwner ? "" : "disabled"}>
-        <option value="owner" ${user.familyRole === "owner" ? "selected" : ""}>Владелец</option><option value="admin" ${user.familyRole === "admin" ? "selected" : ""}>Администратор семьи</option><option value="member" ${user.familyRole !== "owner" && user.familyRole !== "admin" ? "selected" : ""}>Участник</option>
-      </select>${familyManagerIsOwner ? "" : "<small>Роли доступа меняет только владелец семьи.</small>"}</label>
-      <fieldset class="familyCategories"><legend>Категории <small>необязательно</small></legend>${familyCategoryDefinitions.map(([value, label]) => `<label><input type="checkbox" data-family-category="${safe(user.ID)}" value="${value}" ${user.familyCategories?.includes(value) ? "checked" : ""} ${familyManagerCanEditCategories ? "" : "disabled"}> ${label}</label>`).join("")}</fieldset>
-      <label>Отображаемый статус<input data-family-relationship="${safe(user.ID)}" maxlength="80" value="${safe(user.familyRelationship || "Неопределено")}"></label>
-      <button type="button" class="secondary" data-save-family-user="${safe(user.ID)}" ${familyDraftDirty(user) ? "" : "disabled"}>Сохранить</button>
+    <li class="familyMemberSummary" data-family-member="${safe(user.ID)}">
+      <div><strong>${safe(user.Name)}</strong>
+      <small>${safe(tr(user.familyRole === "owner" ? "Владелец" : user.familyRole === "admin" ? "Администратор семьи" : "Участник"))}</small>
+      <span>${safe(user.familyRelationship || tr("Неопределено"))}</span>
+      <small>${safe((user.familyCategories || []).map(value => tr(familyCategoryDefinitions.find(item => item[0] === value)?.[1] || value)).join(", ") || tr("Без категории"))}</small></div>
+      <button type="button" class="secondary" data-edit-family-user="${safe(user.ID)}">${tr("Редактировать")}</button>
     </li>`).join("") : '<li class="muted">Подходящих участников нет.</li>';
-  updateFamilyDirtyState();
 }
-async function saveFamilyMember(userID, button) {
-  const draft = familyMemberDrafts.get(userID);
-  if (!draft || !familyDraftDirty(draft)) return;
+function openFamilyMemberEditor(userID) {
+  const user = familyMemberDrafts.get(userID);
+  if (!user || familyMemberSaving) return;
+  editingFamilyMember = {...user, familyCategories:[...(user.familyCategories || [])], familyID:activeFamilyID};
+  $("#familyMemberEditName").textContent = user.Name;
+  $("#familyMemberEditRole").value = user.familyRole || "member";
+  $("#familyMemberEditRole").disabled = !familyManagerIsOwner;
+  $("#familyMemberRoleHelp").hidden = familyManagerIsOwner;
+  $("#familyMemberEditStatus").value = user.familyRelationship || "Неопределено";
+  $("#familyMemberEditCategories").innerHTML = familyCategoryDefinitions.map(([value,label]) => `<label><input type="checkbox" value="${value}" ${user.familyCategories?.includes(value) ? "checked" : ""} ${familyManagerCanEditCategories ? "" : "disabled"}> ${safe(tr(label))}</label>`).join("");
+  $("#familyMemberEditError").textContent = "";
+  $("#familyMemberEditDialog").showModal();
+}
+async function saveFamilyMember(event) {
+  event.preventDefault();
+  if (!editingFamilyMember || familyMemberSaving) return;
+  const draft = {...editingFamilyMember,
+    familyRole:familyManagerIsOwner ? $("#familyMemberEditRole").value : editingFamilyMember.familyRole,
+    familyRelationship:$("#familyMemberEditStatus").value.trim() || "Неопределено",
+    familyCategories:familyManagerCanEditCategories ? [...$("#familyMemberEditCategories").querySelectorAll("input:checked")].map(input=>input.value).sort() : editingFamilyMember.familyCategories};
+  familyMemberSaving = true;
+  const controls = [...$("#familyMemberEditForm").elements], disabled = controls.map(control=>control.disabled);
+  controls.forEach(control=>control.disabled=true);
+  $("#familyMemberEditError").textContent = "";
   try {
-    await withBusy(button, "Сохраняем…", async () => request(`/families/${encodeURIComponent(activeFamilyID)}/members/${encodeURIComponent(userID)}`, { method: "PATCH", body: JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship, categories: familyManagerCanEditCategories ? draft.familyCategories : undefined }) }));
-    draft.original = JSON.stringify({ role: draft.familyRole, relationship: draft.familyRelationship || "Неопределено", categories: [...(draft.familyCategories || [])].sort() });
-    announce("Изменения сохранены");
+    await request(`/families/${encodeURIComponent(draft.familyID)}/members/${encodeURIComponent(draft.ID)}`, {method:"PATCH", body:JSON.stringify({role:draft.familyRole,relationship:draft.familyRelationship,categories:draft.familyCategories})});
+    familyMemberDrafts.set(draft.ID,draft);
+    $("#familyMemberEditDialog").close();
+    editingFamilyMember = null;
+    const panel = $("#familyAdminDialog .panelBody"), scroll = panel.scrollTop;
     renderFamilyMembers();
-  } catch (error) { $("#familyAdminError").textContent = error.message; }
+    panel.scrollTop = scroll;
+    $("#familyMembers").querySelector(`[data-edit-family-user="${CSS.escape(draft.ID)}"]`)?.focus({preventScroll:true});
+    announce("Изменения сохранены");
+  } catch(error) { $("#familyMemberEditError").textContent = error.message; }
+  finally { familyMemberSaving=false; controls.forEach((control,index)=>control.disabled=disabled[index]); }
 }
+
 function keyBytes(key) {
   const value = (key + "=".repeat((4 - (key.length % 4)) % 4))
       .replace(/-/g, "+")
@@ -790,15 +830,26 @@ $("#profileAvatarFile").onchange = async (event) => {
 };
 $("#openUserMenu").onclick = () => $("#userMenuDialog").showModal();
 $("#myProfile").onclick = () => { $("#userMenuDialog").close(); openUserCard(currentUser.ID, currentUser.Name, currentUser.AvatarURL); };
-$("#openInterfaceSettings").onclick = () => { $("#interfaceSettingsForm").hidden = !$("#interfaceSettingsForm").hidden; };
+const appearance=createAppearanceSettings({form:$("#interfaceSettingsForm"),dialog:$("#profileDialog"),userID:()=>currentUser?.ID||'',preferences:()=>userPreferences});
+$("#openInterfaceSettings").textContent='Оформление и язык';
+let savingAppearance=false;
+$("#openInterfaceSettings").onclick = () => { const form=$("#interfaceSettingsForm");if(form.hidden)appearance.prepare();else appearance.applySaved();form.hidden=!form.hidden; };
 $("#interfaceSettingsForm").onsubmit = async (event) => {
   event.preventDefault();
+  if(savingAppearance)return;
+  savingAppearance=true;
+  const controls=[...event.currentTarget.querySelectorAll('input,select,button')];
+  controls.forEach(el=>el.disabled=true);
   try {
-    userPreferences = await withBusy(event.submitter, "Сохраняем…", async () => request("/user/preferences", { method: "PUT", body: JSON.stringify({ locale: $("#interfaceLocale").value, colorScheme: $("#interfaceColorScheme").value }) }));
+    if($("#interfaceLocale").value!==userPreferences.locale)
+      userPreferences = await request("/user/preferences", { method: "PUT", body: JSON.stringify({ locale: $("#interfaceLocale").value, colorScheme: userPreferences.colorScheme || 'system' }) });
+    appearance.save();
     applyInterfacePreferences();
     renderConversations();
-    $("#interfaceSettingsError").textContent = "Настройки интерфейса сохранены";
+    appearance.prepare();
+    $("#interfaceSettingsError").textContent = userPreferences.locale==='en'?'Interface settings saved':'Настройки интерфейса сохранены';
   } catch (error) { $("#interfaceSettingsError").textContent = error.message; }
+  finally {savingAppearance=false;controls.forEach(el=>el.disabled=false);}
 };
 $("#toggleFavorite").onclick = async () => {
   if (!active || active === personalID || active === groupsID) return;
@@ -859,36 +910,15 @@ for (const selector of ["#familyMemberSearch", "#familyMemberRoleFilter", "#fami
   $(selector).oninput = renderFamilyMembers;
   $(selector).onchange = renderFamilyMembers;
 }
-$("#familyMembers").onchange = (event) => {
-  const target = event.target, userID = target.closest("[data-family-member]")?.dataset.familyMember;
-  if (!userID) return;
-  const draft = familyMemberDrafts.get(userID);
-  if (!draft) return;
-  if (target.dataset.familySelect) {
-    if (target.checked) familyMemberSelection.add(userID); else familyMemberSelection.delete(userID);
-  } else if (target.dataset.familyRole) draft.familyRole = target.value;
-  else if (target.dataset.familyRelationship) draft.familyRelationship = target.value;
-  else if (target.dataset.familyCategory) draft.familyCategories = [...document.querySelectorAll(`[data-family-category="${CSS.escape(userID)}"]:checked`)].map((input) => input.value).sort();
-  const save = target.closest("[data-family-member]")?.querySelector("[data-save-family-user]");
-  if (save) save.disabled = !familyDraftDirty(draft);
-  updateFamilyDirtyState();
+$("#familyMembers").onclick = (event) => {
+  const button = event.target.closest("[data-edit-family-user]");
+  if (button) openFamilyMemberEditor(button.dataset.editFamilyUser);
 };
-$("#familyMembers").onclick = (event) => { const button = event.target.closest("[data-save-family-user]"); if (button) saveFamilyMember(button.dataset.saveFamilyUser, button); };
-$("#applyBulkCategories").onclick = () => {
-  const categories = [...$("#familyBulkCategories").querySelectorAll("input:checked")].map((input) => input.value).sort();
-  for (const userID of familyMemberSelection) { const draft = familyMemberDrafts.get(userID); if (draft) draft.familyCategories = categories; }
-  renderFamilyMembers();
-};
-$("#saveAllFamilyMembers").onclick = async (event) => {
-  const dirty = [...familyMemberDrafts.values()].filter(familyDraftDirty);
-  try { await withBusy(event.currentTarget, "Сохраняем…", async () => { for (const draft of dirty) await saveFamilyMember(draft.ID, null); }); announce("Все изменения сохранены"); } catch (error) { $("#familyAdminError").textContent = error.message; }
-};
-async function closeFamilyAdministration() {
-  if ([...familyMemberDrafts.values()].some(familyDraftDirty) && !await confirmAction({ title: "Закрыть без сохранения?", message: "Несохранённые изменения будут потеряны.", confirmLabel: "Закрыть", destructive: true })) return;
-  $("#familyAdminDialog").close();
-}
-$("#closeFamilyAdmin").onclick = closeFamilyAdministration;
-$("#familyAdminDialog").oncancel = (event) => { event.preventDefault(); closeFamilyAdministration(); };
+$("#familyMemberEditForm").onsubmit = saveFamilyMember;
+$("#cancelFamilyMemberEdit").onclick = () => { if (!familyMemberSaving) $("#familyMemberEditDialog").close(); };
+$("#familyMemberEditDialog").oncancel = (event) => { if (familyMemberSaving) event.preventDefault(); };
+$("#familyMemberEditDialog").onclose = () => { editingFamilyMember = null; };
+$("#closeFamilyAdmin").onclick = () => $("#familyAdminDialog").close();
 $("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; delete $("#familyInviteToken").dataset.token; $("#familyInviteDialog").showModal(); };
 $("#closeFamilyInvite").onclick = () => $("#familyInviteDialog").close();
 $("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено", permissions: ["send_messages", "edit_own_messages", "delete_own_messages", "create_groups"] }) }); $("#familyInviteToken").dataset.token = invite.token; $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };

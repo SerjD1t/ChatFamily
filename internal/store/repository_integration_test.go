@@ -127,8 +127,69 @@ func TestPostgresRepositoryRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStatus("delivered")
+	summaries, err := p.ReceiptSummaries(admin, []string{message.ID})
+	if err != nil || summaries[message.ID].Read != 1 || summaries[message.ID].Total != 2 || summaries[message.ID].Delivered != 2 {
+		t.Fatalf("partial receipts: %v %v", summaries, err)
+	}
+	details, err := p.ReceiptDetails(admin, message.ID)
+	if err != nil || len(details) != 2 {
+		t.Fatalf("details: %v %v", details, err)
+	}
+	for _, detail := range details {
+		if detail.DeliveredAt == nil || (detail.UserID == member.ID && detail.ReadAt == nil) || (detail.UserID == third.ID && detail.ReadAt != nil) {
+			t.Fatal("incorrect recipient times")
+		}
+	}
+	if _, err := p.ReceiptDetails(member, message.ID); err != chat.ErrNotFound {
+		t.Fatalf("non-author allowed: %v", err)
+	}
+	if _, err := p.ReceiptDetails(chat.User{ID: "outsider", Permissions: map[chat.Permission]bool{chat.ManageApplication: true}}, message.ID); err != chat.ErrNotFound {
+		t.Fatalf("global privilege leaked receipts: %v", err)
+	}
 	if _, err := p.RecordReceipts(third, []string{message.ID}, true); err != nil {
 		t.Fatal(err)
 	}
 	assertStatus("read")
+	readDetails, err := p.ReceiptDetails(admin, message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.RecordReceipts(third, []string{message.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := p.ReceiptDetails(admin, message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range repeated {
+		if repeated[i].ReadAt == nil || !repeated[i].ReadAt.Equal(*readDetails[i].ReadAt) {
+			t.Fatal("read time changed on replay")
+		}
+	}
+	if _, err := p.Pool.Exec(ctx, "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", group.ID, third.ID); err != nil {
+		t.Fatal(err)
+	}
+	afterRemoval, err := p.ReceiptDetails(admin, message.ID)
+	if err != nil || len(afterRemoval) != 1 {
+		t.Fatal("must use current members", err)
+	}
+	if _, err := p.Pool.Exec(ctx, "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", group.ID, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ReceiptDetails(admin, message.ID); err != chat.ErrNotFound {
+		t.Fatal("departed author allowed", err)
+	}
+	self, err := p.DirectConversation(admin, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = p.Pool.Exec(ctx, "DELETE FROM conversations WHERE id=$1", self.ID) })
+	selfMessage, err := p.CreateMessage(admin, self.ID, "self", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfDetails, err := p.ReceiptDetails(admin, selfMessage.ID)
+	if err != nil || len(selfDetails) != 0 {
+		t.Fatal("self-dialog recipients", err)
+	}
 }

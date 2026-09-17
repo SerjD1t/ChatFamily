@@ -1,0 +1,8 @@
+# Merge last with the existing production Compose configuration.
+# Provision this directory first; NEVER expose Docker or secrets to the web app.
+services:
+  app:
+    environment:
+      BACKUP_CONTROL_DIR: /backup-control
+    volumes:
+      - /var/lib/chatfamily-backup/control:/backup-control

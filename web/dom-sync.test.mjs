@@ -50,7 +50,7 @@ test('reaction and repeated WebSocket events preserve the chat and composer', { 
     else if (path === '/password-policy') data = { minPasswordLength: 12 };
     else if (path === '/conversations') data = [{ id: 'c1', kind: 'family', familyId: 'f1', title: 'Family' }];
     else if (path.includes('/messages?')) { reads++; data = { messages: [message] }; }
-    else if (path === '/message-statuses') data = { m1: receiptStatus };
+    else if (path === '/message-statuses?details=1') data = { m1: {status:receiptStatus,total:2,read:receiptStatus==='read'?2:0,delivered:receiptStatus==='sent'?0:2} };
     else if (path === '/messages/m1/reactions') {
       if (options.method === 'POST') { message.reactions = [{ emoji: '👍', count: 1, reacted: true }]; await socket.onmessage({ data: JSON.stringify({ type: 'reaction.updated', conversationId: 'c1', messageId: 'm1' }) }); }
       data = message.reactions;

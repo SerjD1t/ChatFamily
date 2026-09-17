@@ -17,19 +17,32 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
  const kindPicker=(name,value,all=false)=>`<fieldset class="needKind"><legend>${t('Тип','Type')}</legend><div>${(all?[['', '≡',t('Все','All')]]:[]).concat([['purchase','🛒',t('Покупка','Purchase')],['task','✓',t('Дело','Task')]]).map(([key,icon,label])=>`<label title="${label}"><input type="radio" name="${name}" value="${key}" ${key===value?'checked':''}><span><i aria-hidden="true">${icon}</i> ${label}</span></label>`).join('')}</div></fieldset>`;
  const base=`/families/${encodeURIComponent(familyID)}/needs`;
  const root=document.createElement('section');root.className='needs';root.setAttribute('data-no-i18n','');
- root.innerHTML=`<form id="shoppingForm" class="needsAdd">
+ root.innerHTML=`<div class="needsToolbar"><button type="button" class="secondary" data-search aria-expanded="false">${t('Поиск и фильтры','Search and filters')}</button><button type="button" data-add>＋ ${t('Добавить','Add')}</button></div>
+ <fieldset class="needsStatuses"><legend class="visuallyHidden">${t('Список','List')}</legend>${[['active',t('Текущие','Active')],['done',t('Выполненные','Completed')],['archive',t('Архив','Archive')]].map(([value,label])=>`<label><input type="radio" name="status" value="${value}" ${value==='active'?'checked':''}><span>${label}</span></label>`).join('')}</fieldset>
+ <div class="needsFilters" hidden><label>${t('Поиск','Search')}<input type="search" name="query" placeholder="${t('Название, описание, исполнитель','Title, description, assignee')}"></label>
+ ${kindPicker('filterKind','',true)}</div>
+ <div class="needActiveFilters" hidden><span data-filter-summary></span><button type="button" class="secondary" data-clear>${t('Сбросить','Reset')}</button></div>
+ <p class="muted" data-count role="status"></p><ul class="needsList"></ul>
+ <dialog class="needCreateDialog" aria-labelledby="needCreateTitle"><div class="needDialogHead"><h3 id="needCreateTitle">${t('Добавить дело или покупку','Add a task or purchase')}</h3><button type="button" class="secondary" data-create-close aria-label="${t('Закрыть','Close')}">×</button></div><form id="shoppingForm" class="needsAdd">
  <label>${t('Название','Title')}<input name="title" maxlength="160" required placeholder="${t('Что нужно сделать или купить?','What needs doing or buying?')}"></label>
  ${kindPicker('kind','purchase')}
- <label>${t('Срок','Due date')}<input name="plannedDate" type="date"></label><button>${t('Добавить','Add')}</button></form>
- <div class="needsFilters"><label>${t('Поиск','Search')}<input type="search" name="query" placeholder="${t('Название, описание, исполнитель','Title, description, assignee')}"></label>
- ${kindPicker('filterKind','',true)}
- <label>${t('Список','List')}<select name="status"><option value="active">${t('Текущие','Active')}</option><option value="done">${t('Выполненные','Completed')}</option><option value="archive">${t('Архив','Archive')}</option></select></label></div>
- <p class="muted" data-count role="status"></p><ul class="needsList"></ul>`;
+ <label>${t('Срок (необязательно)','Due date (optional)')}<input name="plannedDate" type="date"></label><p class="error" data-create-error role="alert"></p><button type="submit">${t('Добавить','Add')}</button></form></dialog>`;
  host.replaceChildren(root);host.onclick=null;host.onchange=null;
  let source=items, busy=false, dialog=null, selected=null, detailRequest=0;
  const form=root.querySelector('form'),list=root.querySelector('ul'),filters=root.querySelector('.needsFilters');
+ const createDialog=root.querySelector('.needCreateDialog'),addButton=root.querySelector('[data-add]'),searchButton=root.querySelector('[data-search]');
+ addButton.onclick=()=>{createDialog.showModal();form.elements.title.focus();};
+ root.querySelector('[data-create-close]').onclick=()=>{if(!busy)createDialog.close();};
+ createDialog.oncancel=e=>{if(busy)e.preventDefault();};
+ createDialog.onclose=()=>addButton.focus({preventScroll:true});
+ createDialog.onclick=e=>{if(e.target===createDialog&&!busy){const r=createDialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)createDialog.close();}};
+ searchButton.onclick=()=>{filters.hidden=!filters.hidden;searchButton.setAttribute('aria-expanded',String(!filters.hidden));if(!filters.hidden)field('query').focus();};
+ root.querySelector('[data-clear]').onclick=()=>{field('query').value='';root.querySelector('[name=filterKind][value=""]').checked=true;render();};
  const field=name=>root.querySelector(`[name="${name}"]:checked`)||root.querySelector(`[name="${name}"]`);
  function render() {
+  const query=field('query').value.trim(),kind=field('filterKind').value;
+  root.querySelector('.needActiveFilters').hidden=!query&&!kind;
+  root.querySelector('[data-filter-summary]').textContent=[query?`${t('Поиск','Search')}: ${query}`:'',kind?(kind==='task'?t('Дела','Tasks'):t('Покупки','Purchases')):''].filter(Boolean).join(' · ');
   const shown=filterNeeds(source,{query:field('query').value,kind:field('filterKind').value,status:field('status').value});
   const today=todayISO();
   root.querySelector('[data-count]').textContent=`${t('Записей','Items')}: ${shown.length}`;
@@ -42,15 +55,17 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
   }).join('')||`<li class="muted">${t('Список пуст','No items')}</li>`);
  }
  filters.oninput=render;filters.onchange=render;
+ root.querySelector('.needsStatuses').onchange=render;
  async function mutate(path,body,method='PATCH') {
   return request(path,{method,body:JSON.stringify(body)});
  }
  async function reload() {if(isCurrent()&&root.isConnected)await refresh();}
  form.onsubmit=async event=>{
-  event.preventDefault();if(busy)return;busy=true;form.querySelector('button').disabled=true;
-  try {await mutate(base,{title:field('title').value,kind:field('kind').value,plannedDate:field('plannedDate').value},'POST');field('title').value='';await reload();}
-  catch(e){announce(e.message,'error');}
-  finally{busy=false;form.querySelector('button').disabled=false;}
+  event.preventDefault();if(busy)return;busy=true;form.querySelectorAll('input,button').forEach(el=>el.disabled=true);
+  root.querySelector('[data-create-error]').textContent='';
+  try {await mutate(base,{title:form.elements.title.value,kind:form.elements.kind.value,plannedDate:form.elements.plannedDate.value},'POST');form.reset();createDialog.close();field('query').value='';root.querySelector('[name=filterKind][value=""]').checked=true;root.querySelector('[name=status][value=active]').checked=true;render();await reload();announce(t('Добавлено в текущие','Added to active items'));}
+  catch(e){root.querySelector('[data-create-error]').textContent=e.message;}
+  finally{busy=false;form.querySelectorAll('input,button').forEach(el=>el.disabled=false);}
  };
  list.onchange=async event=>{
   const id=event.target.dataset.toggle;if(!id)return;
@@ -71,6 +86,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
   return (names[a.action]||a.action)+(changed.length?' · '+changed.join('; '):'');
  }
  async function openDetail(id) {
+  const savedScroll=host.scrollTop,opener=[...list.querySelectorAll('[data-open]')].find(el=>el.dataset.open===id);
   const sequence=++detailRequest;
   try {
    const data=await request(base+'/'+encodeURIComponent(id));if(sequence!==detailRequest||!root.isConnected||!isCurrent())return;
@@ -104,7 +120,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
    current.querySelector('[data-start-edit]')?.addEventListener('click',()=>editMode(true));
    current.querySelector('[data-cancel-edit]')?.addEventListener('click',()=>{editForm.reset();editMode(false);current.querySelector('[data-start-edit]').focus();});
    current.querySelector('[data-close]').onclick=()=>current.close();
-   current.onclose=()=>{current.remove();if(dialog===current){dialog=null;selected=null;}};
+   current.onclose=()=>{current.remove();if(dialog===current){dialog=null;selected=null;}if(root.isConnected&&isCurrent()){opener?.focus({preventScroll:true});host.scrollTop=savedScroll;}};
    current.onclick=e=>{if(e.target===current){const rect=current.getBoundingClientRect();if(e.clientX<rect.left||e.clientX>rect.right||e.clientY<rect.top||e.clientY>rect.bottom)current.close();}};
    let saving=false;
    async function act(operation,keepOpen=false) {
