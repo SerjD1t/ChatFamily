@@ -82,7 +82,7 @@ function scheduleMessageSync(id) {
   messageSyncTimer = setTimeout(async () => {
     if (id !== active) return;
     messageSyncRunning = true;
-    try { await openConversation(id); }
+    try { await openConversation(id, "", false); }
     finally {
       messageSyncRunning = false;
       if (messageSyncAgain) { messageSyncAgain = false; scheduleMessageSync(active); }
@@ -364,16 +364,18 @@ async function startDirect(userID) {
     $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
-async function openConversation(id, before = "") {
+async function openConversation(id, before = "", navigate = true) {
   if(active!==id)receiptDetails.close();
   const refreshing = active === id && displayedConversation === id && $("#messages").dataset.conversationId === id;
   const scroller = $("#messages"), oldHeight = scroller.scrollHeight;
   if (id === personalID) return openPersonal();
   if (id === groupsID) return openGroups();
   if (id === childrenID || id === grandparentsID) return openFamilyCategory(id);
-  if (id === shoppingID) return openShopping();
+  if (id === shoppingID) return openShopping(navigate);
   const version = ++loadVersion;
-  if (!refreshing) openMobileContent();
+  // Navigation and history refresh are independent: returning to the list keeps
+  // the selected chat/DOM, but a deliberate tap must show that chat again.
+  if (navigate) openMobileContent();
   active = id;
   $("#composer").hidden = false;
   saveActive(active);
@@ -447,10 +449,10 @@ async function openFamilyCategory(sectionID) {
   } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
 }
 
-async function openShopping() {
+async function openShopping(navigate = false) {
   const refreshing = active === shoppingID && !!$("#shoppingForm");
   const version = ++loadVersion, familyID = activeFamilyID;
-  if (!refreshing) openMobileContent();
+  if (navigate) openMobileContent();
   active = shoppingID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t("shopping");
   $("#chatSubtitle").textContent = activeFamily(families, familyID)?.title || "";
@@ -462,7 +464,7 @@ async function openShopping() {
     const [items, archived] = await Promise.all([request(base), request(base + "?archived=true")]);
     if (version !== loadVersion || !isCurrent()) return;
     shoppingCounter = summarizeShopping(items); renderConversations();
-    mountNeeds({host: $("#messages"), familyID, items: [...items,...archived], request, refresh: openShopping, announce, locale: userPreferences.locale, isCurrent});
+    mountNeeds({host: $("#messages"), familyID, items: [...items,...archived], request, refresh: () => openShopping(), announce, locale: userPreferences.locale, isCurrent});
   } catch (error) {
     if (version !== loadVersion || !isCurrent()) return;
     if (refreshing) announce(error.message, "error");
@@ -531,19 +533,18 @@ async function startApp() {
   if (!isNative || (await nativeCapabilities()).incomingShares) initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: (cid) => { scheduleMessageSync(cid); void loadConversations(); } });
   if (isNative && (await nativeCapabilities()).deviceStorage) initDeviceStorage({locale:()=>userPreferences.locale,confirmAction});
 }
-const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openAdmin(),announce});
+const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openApplicationUsers(),announce});
 const openStorageAdmin = initStorageAdmin({request,locale:()=>userPreferences.locale,confirmAction});
 const openBackupAdmin = initBackupAdmin({request,locale:()=>userPreferences.locale,confirmAction});
 const openApplicationFamilies = initApplicationFamilies({request,locale:()=>userPreferences.locale,confirmAction});
 async function openAdmin() {
   try {
-    const [users, settings] = await Promise.all([request("/users"), request("/application/settings")]);
+    const settings = await request("/application/settings");
     $("#minPasswordLength").value = settings.minPasswordLength;
     $("#applicationSettingsError").textContent = "";
     if (!$("#openStorageAdmin")) {
-      const section=document.createElement('section');section.className='settingsSection';section.setAttribute('data-no-i18n','');
-      const button=document.createElement('button');button.id='openStorageAdmin';button.type='button';button.className='secondary';button.onclick=openStorageAdmin;section.append(button);
-      $("#applicationAdminDialog .panelBody").prepend(section);
+      const button=document.createElement('button');button.id='openStorageAdmin';button.type='button';button.className='secondary';button.onclick=openStorageAdmin;button.setAttribute('data-no-i18n','');
+      $("#applicationAdminSections").append(button);
     }
     $("#openStorageAdmin").textContent=userPreferences.locale==='en'?'Storage':'Хранилище';
     if (!$("#openBackupAdmin")) {
@@ -553,9 +554,26 @@ async function openAdmin() {
     $("#openBackupAdmin").textContent=userPreferences.locale==='en'?'Backups':'Резервные копии';
     if (!$("#openApplicationFamilies")) {
       const button=document.createElement('button');button.id='openApplicationFamilies';button.type='button';button.className='secondary';button.onclick=openApplicationFamilies;
-      $("#applicationAdminDialog .panelBody").prepend(button);
+      $("#applicationAdminSections").insertBefore(button, $("#openApplicationUsers").nextSibling);
     }
     $("#openApplicationFamilies").textContent=userPreferences.locale==='en'?'Families':'Семьи';
+    $("#applicationAdminDialog").showModal();
+  } catch (e) { announce(e.message, "error"); }
+}
+let applicationUsersLoading = false;
+$("#openApplicationUsers").onclick = openApplicationUsers;
+$("#closeApplicationUsers").onclick = () => $("#applicationUsersDialog").close();
+$("#retryApplicationUsers").onclick = openApplicationUsers;
+async function openApplicationUsers() {
+  if (applicationUsersLoading) return;
+  applicationUsersLoading = true;
+  const dialog = $("#applicationUsersDialog");
+  if (!dialog.open) dialog.showModal();
+  $("#applicationUsersError").textContent = "";
+  $("#retryApplicationUsers").hidden = true;
+  $("#users").setAttribute("aria-busy", "true");
+  try {
+    const users = await request("/users");
     mountDirectory({list:$("#users"),users,admin:true,locale:()=>userPreferences.locale,render:(u) => {
         const admin = !!u.Permissions?.manage_application;
         return `<li class="accountRow"><div class="accountIdentity" data-no-i18n><strong>${safe(u.Name)}</strong><small>${safe(u.Email)}</small></div><div class="accountStatus">${u.disabled ? '<small>Деактивирован</small>' : '<small>Активен</small>'}${admin ? "<small>Администратор приложения</small>" : ""}</div><details class="accountActions"><summary>Действия</summary><div>${u.ID === currentUser.ID ? "" : `<button class="toggleAdmin secondary" data-toggle-admin="${safe(u.ID)}">${admin ? "Снять права администратора" : "Сделать администратором"}</button>`}<button class="secondary" data-edit-permissions="${safe(u.ID)}">Права приложения</button>${u.ID===currentUser.ID || u.ID==='admin' ? '' : `<button class="secondary" data-user-lifecycle="${safe(u.ID)}" data-action="${u.disabled?'activate':'deactivate'}">${u.disabled?'Активировать аккаунт':'Деактивировать аккаунт'}</button><button class="secondary dangerText" data-user-lifecycle="${safe(u.ID)}" data-action="delete">Удалить аккаунт</button>`}</div></details></li>`;
@@ -583,11 +601,16 @@ async function openAdmin() {
           method: "PATCH",
           body: JSON.stringify({ permissions }),
         });
-        await openAdmin();
+        await openApplicationUsers();
       } catch (e) { announce(e.message, "error"); }
     };
-    $("#applicationAdminDialog").showModal();
-  } catch (e) { announce(e.message, "error"); }
+  } catch (e) {
+    $("#applicationUsersError").textContent = e.message;
+    $("#retryApplicationUsers").hidden = false;
+  } finally {
+    applicationUsersLoading = false;
+    $("#users").removeAttribute("aria-busy");
+  }
 }
 function openApplicationPermissions(user) {
   editingApplicationUser = user;
@@ -877,7 +900,7 @@ $("#applicationSettingsForm").onsubmit = async (event) => {
     $("#applicationSettingsError").textContent = "Правило сохранено";
   } catch (error) { $("#applicationSettingsError").textContent = error.message; }
 };
-$("#savePermissions").onclick = async (event) => { event.preventDefault(); if (!editingApplicationUser) return; const permissions = [...$("#permissionList").querySelectorAll("input:checked")].map((input) => input.value); try { await withBusy(event.currentTarget, "Сохраняем…", async () => request(`/users/${encodeURIComponent(editingApplicationUser.ID)}/permissions`, { method: "PATCH", body: JSON.stringify({ permissions }) })); $("#permissionsDialog").close(); announce("Права приложения сохранены"); await openAdmin(); } catch (error) { announce(error.message, "error"); } };
+$("#savePermissions").onclick = async (event) => { event.preventDefault(); if (!editingApplicationUser) return; const permissions = [...$("#permissionList").querySelectorAll("input:checked")].map((input) => input.value); try { await withBusy(event.currentTarget, "Сохраняем…", async () => request(`/users/${encodeURIComponent(editingApplicationUser.ID)}/permissions`, { method: "PATCH", body: JSON.stringify({ permissions }) })); $("#permissionsDialog").close(); announce("Права приложения сохранены"); await openApplicationUsers(); } catch (error) { announce(error.message, "error"); } };
 $("#newFamily").onclick = () => {
   $("#parentFamily").innerHTML = '<option value="">Независимая семья</option>' + families.map((family) => `<option value="${safe(family.id)}" ${family.id === activeFamilyID ? "selected" : ""}>${safe(family.title)}</option>`).join("");
   $("#userMenuDialog").close();
