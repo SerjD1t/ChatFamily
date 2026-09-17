@@ -48,6 +48,7 @@ func TestBackupPolicyAndQueue(t *testing.T) {
 	}
 	p := defaultBackupPolicy()
 	p.Enabled = true
+	p.DailyTime = "02:30"
 	raw, _ := json.Marshal(p)
 	if w = call("PUT", string(raw)); w.Code != 409 {
 		t.Fatal("must initialize first", w.Code)
@@ -87,5 +88,22 @@ func TestBackupPolicyAndQueue(t *testing.T) {
 	}
 	if w = call("POST", `{"action":"run"}`); w.Code != 409 {
 		t.Fatal("stale worker", w.Code)
+	}
+}
+
+func TestBackupDailyTimeValidation(t *testing.T) {
+	for _, value := range []string{"", "02:30", "23:59"} {
+		p := defaultBackupPolicy()
+		p.DailyTime = value
+		if !p.valid() {
+			t.Fatal("valid time rejected", value)
+		}
+	}
+	for _, value := range []string{"2:30", "24:00", "02:60", "02:30:00"} {
+		p := defaultBackupPolicy()
+		p.DailyTime = value
+		if p.valid() {
+			t.Fatal("invalid time accepted", value)
+		}
 	}
 }

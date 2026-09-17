@@ -12,7 +12,8 @@ export function initBackupAdmin({request,locale,confirmAction}) {
    <form data-settings><fieldset disabled><legend>${t('Расписание и хранение','Schedule and retention')}</legend>
    <label><input type="checkbox" name="enabled">${t('Автоматическое копирование','Automatic backups')}</label>
    <div class="storageSettingsGrid"><label>${t('Периодичность, часов','Interval, hours')}<select name="intervalHours">${[1,3,6,12,24].map(n=>`<option value="${n}">${n}</option>`).join('')}</select></label>
-   <label>${t('Часовой пояс группировки копий','Retention timezone')}<input name="timezone" maxlength="80" required placeholder="Europe/Moscow"></label>
+   <label>${t('Ежедневно в (пусто — по интервалу)','Daily at (empty — use interval)')}<input type="time" name="dailyTime"></label>
+   <label>${t('Часовой пояс расписания и хранения','Schedule and retention timezone')}<input name="timezone" maxlength="80" required placeholder="Europe/Moscow"></label>
    ${fields.map(([name,label])=>`<label>${label}<input type="number" name="${name}" min="1" max="${name==='limitGiB'?500:3650}" required></label>`).join('')}</div>
    <p class="muted">${t('Сроки должны возрастать. Более старые копии: одна за календарный год. Последняя копия всегда сохраняется. Лимит не сокращает сроки хранения автоматически.','Age limits must increase. Older snapshots: one per calendar year. The latest snapshot is always retained. The quota never silently shortens retention.')}</p>
    <button>${t('Сохранить','Save')}</button></fieldset></form>
@@ -38,7 +39,7 @@ export function initBackupAdmin({request,locale,confirmAction}) {
   async function perform(fn){if(busy)return;busy=true;dialog.querySelector('[data-error]').textContent='';dialog.querySelector('fieldset').disabled=true;dialog.querySelectorAll('button:not([data-close])').forEach(b=>b.disabled=true);
    try{await fn();}catch(e){if(dialog.isConnected)dialog.querySelector('[data-error]').textContent=e.message;}finally{busy=false;if(dialog.isConnected){dialog.querySelector('fieldset').disabled=!data;dialog.querySelector('form button').disabled=!data;dialog.querySelector('[data-refresh]').disabled=false;dialog.querySelector('[data-action="check"]').disabled=!data||data.workerStale||data.pending||data.status.running;dialog.querySelector('[data-action="run"]').disabled=!data||!data.status.ready||data.workerStale||data.pending||data.status.running;}}}
   dialog.querySelector('[data-refresh]').onclick=()=>perform(()=>load(!data));
-  dialog.querySelector('[data-settings]').onsubmit=e=>{e.preventDefault();perform(async()=>{const settings={enabled:field('enabled').checked,timezone:field('timezone').value.trim(),intervalHours:Number(field('intervalHours').value)};for(const [name]of fields)settings[name]=Number(field(name).value);
+  dialog.querySelector('[data-settings]').onsubmit=e=>{e.preventDefault();perform(async()=>{const settings={enabled:field('enabled').checked,timezone:field('timezone').value.trim(),intervalHours:Number(field('intervalHours').value),dailyTime:field('dailyTime').value};for(const [name]of fields)settings[name]=Number(field(name).value);
    await request('/application/backups',{method:'PUT',body:JSON.stringify(settings)});dialog.querySelector('[data-result]').textContent=t('Настройки сохранены','Settings saved');await load();});};
   dialog.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>perform(async()=>{const action=button.dataset.action;
    if(action==='run'&&!await confirmAction({title:t('Создать резервную копию?','Create backup?'),message:t('Чат кратко остановится для согласованного снимка. Рабочие данные не удаляются.','Chat will pause briefly for a consistent capture. Live data will not be deleted.'),confirmLabel:t('Создать копию','Back up')}))return;

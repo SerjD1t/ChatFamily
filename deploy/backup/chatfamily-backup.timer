@@ -3,8 +3,9 @@ Description=Check ChatFamily backup schedule each minute
 
 [Timer]
 OnBootSec=90
-OnUnitInactiveSec=60
-AccuracySec=10
+OnCalendar=*-*-* *:*:00
+AccuracySec=1
+Persistent=true
 Unit=chatfamily-backup.service
 
 [Install]

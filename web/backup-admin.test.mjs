@@ -15,7 +15,8 @@ test('backup panel: settings, confirmation, errors, duplicates and stable chat',
  assert.equal(dialog.querySelector('form button').disabled,false);
  assert.equal(dialog.querySelector('[data-snapshots] test'),null);
  dialog.querySelector('[data-action="run"]').click();await wait();assert.equal(calls.filter(o=>o.method==='POST').length,0);
- fail=true;dialog.querySelector('[name="dailyDays"]').value='25';dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await wait();
+ fail=true;dialog.querySelector('[name="dailyTime"]').value='02:30';dialog.querySelector('[name="dailyDays"]').value='25';dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await wait();
+ assert.equal(JSON.parse(calls.find(o=>o.method==='PUT').body).dailyTime,'02:30');
  assert.equal(dialog.querySelector('[name="dailyDays"]').value,'25');assert.equal(dialog.querySelector('[data-error]').textContent,'Synthetic failure');assert.equal(dialog.querySelector('form button').disabled,false);
  fail=false;permit=true;dialog.querySelector('[data-action="run"]').click();dialog.querySelector('[data-action="run"]').click();await wait();assert.equal(calls.filter(o=>o.method==='POST').length,1);assert.equal(dialog.querySelector('[data-action="run"]').disabled,true);
  assert.equal(document.querySelector('#chat'),node);dialog.querySelector('[data-close]').click();assert.equal(dialog.isConnected,false);dom.window.close();

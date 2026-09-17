@@ -26,7 +26,7 @@ from yandex_rest import Yandex, RemoteError, NoRedirect, bridge
 
 UTC = dt.timezone.utc
 DEFAULTS = dict(enabled=False, intervalHours=6, timezone='Europe/Moscow', recentDays=2,
-                dailyDays=30, weeklyDays=90, monthlyDays=365, limitGiB=450)
+                dailyDays=30, weeklyDays=90, monthlyDays=365, limitGiB=450, dailyTime='')
 
 
 class Failure(Exception):
@@ -49,9 +49,14 @@ def parse_time(value):
 
 
 def policy(value):
+    if isinstance(value, dict):
+        value = dict(value)
+        value.setdefault('dailyTime', '')
     if not isinstance(value, dict) or set(value) != set(DEFAULTS):
         raise Failure('invalid_policy')
     if type(value['enabled']) is not bool or not isinstance(value['timezone'], str):
+        raise Failure('invalid_policy')
+    if not isinstance(value['dailyTime'], str) or (value['dailyTime'] and not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', value['dailyTime'])):
         raise Failure('invalid_policy')
     for key in ('intervalHours', 'recentDays', 'dailyDays', 'weeklyDays', 'monthlyDays', 'limitGiB'):
         if type(value[key]) is not int:
@@ -63,6 +68,24 @@ def policy(value):
     except (ValueError, KeyError):
         raise Failure('invalid_policy') from None
     return value
+
+
+def next_due(settings, success, at):
+    if not settings.get('dailyTime'):
+        return parse_time(success) + dt.timedelta(hours=settings['intervalHours']) if success else at
+    zone = ZoneInfo(settings['timezone'])
+    hour, minute = map(int, settings['dailyTime'].split(':'))
+    local = at.astimezone(zone)
+    due = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if success and parse_time(success) >= due.astimezone(UTC):
+        due += dt.timedelta(days=1)
+    return due.astimezone(UTC)
+
+
+def original_name(value):
+    # Legacy uploads may have names other than current random hex IDs. Preserve
+    # all flat regular originals, but never follow paths or cache directories.
+    return isinstance(value, str) and bool(value) and value not in ('.', '..', '.previews-v1', '.storage-trash') and not any(c in value for c in ('/', '\\', '\x00'))
 
 
 def retained(snapshots, settings, at):
@@ -293,7 +316,7 @@ class Worker:
             for entry in source.iterdir():
                 if entry.name in ('.previews-v1', '.storage-trash'):
                     continue
-                if entry.is_symlink() or not entry.is_file() or not re.fullmatch(r'(avatar-)?[a-f0-9]{32}', entry.name):
+                if entry.is_symlink() or not entry.is_file() or not original_name(entry.name):
                     raise Failure('unrecognized_upload')
                 total += entry.stat().st_size
                 files.append(entry)
@@ -325,11 +348,13 @@ class Worker:
                 raise Failure('invalid_deployment_directory')
             target = stage / 'launch'
             target.mkdir(mode=0o700)
-            for name in ('docker-compose.yml', 'docker-compose.production.yml', '.env', 'Caddyfile'):
+            for name in ('docker-compose.yml', 'docker-compose.production.yml', '.env', 'Caddyfile',
+                         'deploy/compose.py', 'deploy/backup/compose.backup.yml'):
                 path = launch / name
                 if path.is_symlink():
                     raise Failure('unsafe_launch_file')
                 if path.is_file():
+                    (target / name).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                     shutil.copy2(path, target / name)
             runtime = stage / 'application'
             runtime.mkdir(mode=0o700)
@@ -440,7 +465,7 @@ class Worker:
             keys = command(['docker', 'exec', container, 'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'familychat', '-d', 'familychat',
                             '-Atc', 'SELECT object_key FROM attachments WHERE message_id IS NOT NULL AND deleted_at IS NULL UNION SELECT avatar_key FROM users WHERE avatar_key IS NOT NULL;'], timeout=60).decode().splitlines()
             for key in keys:
-                if not re.fullmatch(r'(avatar-)?[a-f0-9]{32}', key) or not (uploads / key).is_file():
+                if not original_name(key) or (uploads / key).is_symlink() or not (uploads / key).is_file():
                     raise Failure('referenced_original_missing')
             self.publish(lastRestoreCheck=stamp())
         finally:
@@ -558,8 +583,7 @@ class Worker:
             return
         last = self.state.get('lastAttempt')
         success = self.state.get('lastSuccess')
-        interval = dt.timedelta(hours=self.settings['intervalHours'])
-        due = parse_time(success) + interval if success else now()
+        due = next_due(self.settings, success, now())
         # Failed runs retry after 30 minutes, not every timer tick.
         retry_ok = not last or now() - parse_time(last) >= dt.timedelta(minutes=30)
         self.publish(nextRun=stamp(due) if self.settings['enabled'] else None)

@@ -25,12 +25,19 @@ type backupPolicy struct {
 	WeeklyDays    int    `json:"weeklyDays"`
 	MonthlyDays   int    `json:"monthlyDays"`
 	LimitGiB      int    `json:"limitGiB"`
+	DailyTime     string `json:"dailyTime"`
 }
 
 func defaultBackupPolicy() backupPolicy {
-	return backupPolicy{false, 6, "Europe/Moscow", 2, 30, 90, 365, 450}
+	return backupPolicy{false, 6, "Europe/Moscow", 2, 30, 90, 365, 450, ""}
 }
 func (p backupPolicy) valid() bool {
+	if p.DailyTime != "" {
+		parsed, err := time.Parse("15:04", p.DailyTime)
+		if err != nil || parsed.Format("15:04") != p.DailyTime {
+			return false
+		}
+	}
 	_, err := time.LoadLocation(p.Timezone)
 	return err == nil && len(p.Timezone) <= 80 && p.Timezone != "" &&
 		(p.IntervalHours == 1 || p.IntervalHours == 3 || p.IntervalHours == 6 || p.IntervalHours == 12 || p.IntervalHours == 24) &&

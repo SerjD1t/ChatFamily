@@ -9,11 +9,26 @@ import unittest
 from unittest.mock import patch
 import urllib.request
 
-from worker import DEFAULTS, Failure, Worker, find_secret, policy, retained, read_json, write_json, UTC
+from worker import DEFAULTS, Failure, Worker, find_secret, policy, retained, read_json, write_json, UTC, next_due, original_name
 from yandex_rest import Yandex, RemoteError, bridge
 
 
 class PolicyTests(unittest.TestCase):
+    def test_legacy_original_names(self):
+        for name in ('a'*32, 'avatar-'+'b'*32, 'legacy-file.pdf'):
+            self.assertTrue(original_name(name))
+        for name in ('', '..', '../file', '/file', 'dir\\file', '.previews-v1', '.storage-trash', None):
+            self.assertFalse(original_name(name))
+    def test_daily_time(self):
+        settings = dict(DEFAULTS, dailyTime='02:30')
+        at = dt.datetime(2026,9,17,15,tzinfo=UTC)
+        self.assertEqual(next_due(settings, at.isoformat(), at), dt.datetime(2026,9,17,23,30,tzinfo=UTC))
+        self.assertEqual(next_due(settings, None, at), dt.datetime(2026,9,16,23,30,tzinfo=UTC))
+        before = dt.datetime(2026,9,17,22,tzinfo=UTC)
+        self.assertEqual(next_due(settings, at.isoformat(), before), dt.datetime(2026,9,17,23,30,tzinfo=UTC))
+        for value in ('24:00','2:30','12:60',None):
+            with self.assertRaises(Failure): policy(dict(DEFAULTS,dailyTime=value))
+
     def test_policy(self):
         self.assertEqual(policy(DEFAULTS.copy()), DEFAULTS)
         for change in ({'enabled':1}, {'recentDays':30}, {'intervalHours':2}, {'limitGiB':501}, {'timezone':'../../bad'}):
