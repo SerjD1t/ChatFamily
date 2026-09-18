@@ -59,6 +59,7 @@ type UserPreferences struct {
 }
 
 type ShoppingItem struct {
+	OwnerUserID  *string    `json:"ownerUserId,omitempty"`
 	Kind         string     `json:"kind"`
 	Description  string     `json:"description"`
 	AssigneeID   *string    `json:"assigneeId,omitempty"`

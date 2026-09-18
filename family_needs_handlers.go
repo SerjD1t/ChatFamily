@@ -51,6 +51,10 @@ func (a *app) needs(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, status, result)
 	if r.Method != "GET" {
-		a.hub.publish(realtimeEvent{Type: "shopping.changed"})
+		event := realtimeEvent{Type: "shopping.changed"}
+		if familyID == "" {
+			event.UserID = actor.ID
+		}
+		a.hub.publish(event)
 	}
 }

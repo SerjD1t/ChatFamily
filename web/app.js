@@ -5,6 +5,8 @@ import { mountDirectory } from "./directory.js";
 import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/runtime.js";
 import { initIncomingShares } from "./mobile/incoming-share.js";
 import { initDeviceStorage } from "./mobile/device-storage.js";
+import { initAppUpdate } from "./mobile/app-update.js";
+import { initAutomations } from "./automations.js";
 import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
 import { mountNeeds } from "./family-needs.js";
@@ -130,6 +132,7 @@ const familyCategoryDefinitions = [
   ["guardian", "Опекун"],
   ["relative", "Родственник"],
 ];
+let needsScope = "family";
 const familySections = [
   [childrenID, "children", "child", "👶"],
   [grandparentsID, "grandparents", "grandparent", "👵"],
@@ -210,7 +213,8 @@ function renderConversations() {
   const sectionButton = (id, title, icon, unread = 0) => button({ id, title, unreadCount: unread }, icon);
   const navigationHTML =
     sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.map(([id, title, , icon]) => id === shoppingID ? button({id, title: t(title), lastMessage: `${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, icon) : sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
+    button({id: shoppingID, title: t("shopping"), lastMessage: `${needsScope === "family" && activeFamilyID ? t("family") : (userPreferences.locale === "en" ? "Personal" : "Личные")} · ${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, "🛒") +
+    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.filter(([id]) => id !== shoppingID).map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.filter((conversation) => visibleGroups.some((item) => item.id === conversation.id)).map((conversation) => button(conversation, "★")).join("") +
     visibleGroups.filter((conversation) => !favoriteIDs.has(conversation.id)).map((conversation) => button(conversation, "#")).join("") +
     (activeFamilyID && !visibleGroups.length ? `<p class="conversationPreview">${safe(filter ? "Ничего не найдено" : "Групп пока нет")}</p>` : "");
@@ -221,20 +225,22 @@ function renderConversations() {
   };
 }
 $("#conversationFilter").oninput = renderConversations;
-async function loadConversations() {
+async function loadConversations(navigateIfEmpty = true) {
+  const familyID = activeFamilyID, scope = needsScope;
   const [list, favorites, shoppingItems] = await Promise.all([
     request("/conversations"),
     request("/favorites"),
-    activeFamilyID ? request(`/families/${encodeURIComponent(activeFamilyID)}/shopping`).catch(() => []) : [],
+    request(needsScope === "family" && activeFamilyID ? `/families/${encodeURIComponent(activeFamilyID)}/shopping` : "/me/needs").catch(() => []),
   ]);
+  if (familyID !== activeFamilyID || scope !== needsScope) return;
   conversations = list;
   favoriteIDs = new Set(favorites);
   shoppingCounter = summarizeShopping(shoppingItems);
   renderConversations();
-  if (!active) {
+  if (!active && navigateIfEmpty) {
     const saved = localStorage.getItem(activeConversationKey);
-    if (saved === personalID || saved === groupsID || conversations.some((c) => c.id === saved)) openConversation(saved);
-    else { const family = conversations.find((c) => c.kind === "family"); if (family) openConversation(family.id); }
+    if (saved === shoppingID || saved === personalID || saved === groupsID || conversations.some((c) => c.id === saved)) openConversation(saved);
+    else { const family = conversations.find((c) => c.kind === "family" && c.familyId === activeFamilyID); if (family) openConversation(family.id); }
   }
 }
 function messageStatus(status,id) {
@@ -274,6 +280,8 @@ function openUserCard(userID, name, avatarURL) {
   $("#changeAvatar").hidden = userID !== currentUser?.ID;
   $("#openEditNames").hidden = userID !== currentUser?.ID;
   $("#openInterfaceSettings").hidden = userID !== currentUser?.ID;
+  $("#openAutomations").hidden = userID !== currentUser?.ID;
+  $("#openAutomations").textContent = userPreferences.locale==='en'?'Automation':'Автоматизация';
   $("#interfaceSettingsForm").hidden = true;
   $("#interfaceLocale").value = userPreferences.locale || "ru";
   $("#interfaceColorScheme").value = userPreferences.colorScheme || "system";
@@ -333,8 +341,8 @@ async function openPersonal() {
       $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
-async function openGroups() {
-  openMobileContent();
+async function openGroups(navigate = true) {
+  if (navigate) openMobileContent();
   const version = ++loadVersion;
   active = groupsID;
   saveActive(active);
@@ -369,8 +377,8 @@ async function openConversation(id, before = "", navigate = true) {
   const refreshing = active === id && displayedConversation === id && $("#messages").dataset.conversationId === id;
   const scroller = $("#messages"), oldHeight = scroller.scrollHeight;
   if (id === personalID) return openPersonal();
-  if (id === groupsID) return openGroups();
-  if (id === childrenID || id === grandparentsID) return openFamilyCategory(id);
+  if (id === groupsID) return openGroups(navigate);
+  if (id === childrenID || id === grandparentsID) return openFamilyCategory(id, navigate);
   if (id === shoppingID) return openShopping(navigate);
   const version = ++loadVersion;
   // Navigation and history refresh are independent: returning to the list keeps
@@ -429,11 +437,12 @@ async function openConversation(id, before = "", navigate = true) {
   }
 }
 
-async function openFamilyCategory(sectionID) {
+async function openFamilyCategory(sectionID, navigate = true) {
   const definition = familySections.find(([id]) => id === sectionID);
   if (!definition || !activeFamilyID) return;
   const [, title, category] = definition;
-  openMobileContent();
+  if (navigate) openMobileContent();
+  const version = ++loadVersion, familyID = activeFamilyID;
   active = sectionID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t(title);
   $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
@@ -443,28 +452,33 @@ async function openFamilyCategory(sectionID) {
   try {
     const familyConversation = conversations.find((conversation) => conversation.kind === "family" && conversation.familyId === activeFamilyID);
     const members = familyConversation ? await request(`/conversations/${encodeURIComponent(familyConversation.id)}/members`) : [];
+    if (version !== loadVersion || familyID !== activeFamilyID || active !== sectionID) return;
     const filtered = members.filter((member) => member.familyCategories?.includes(category));
     $("#messages").innerHTML = filtered.length ? `<div class="familyDirectory">${filtered.map((member) => contactMarkup({ id: member.ID, name: member.Name, subtitle: member.familyRelationship || "Написать" })).join("")}</div>` : '<section class="emptyState"><div class="emptyIcon" aria-hidden="true">○</div><h3>Пока никого нет</h3><p>Владелец или администратор семьи может назначить эту категорию в управлении семьёй.</p></section>';
     $("#messages").onclick = (event) => { const userID = event.target.closest("[data-user-id]")?.dataset.userId; if (userID) startDirect(userID); };
-  } catch (error) { $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
+  } catch (error) { if (version === loadVersion) $("#messages").innerHTML = `<p class="error">${safe(error.message)}</p>`; }
 }
 
 async function openShopping(navigate = false) {
-  const refreshing = active === shoppingID && !!$("#shoppingForm");
-  const version = ++loadVersion, familyID = activeFamilyID;
+  const version = ++loadVersion;
+  const familyID = needsScope === "family" ? activeFamilyID : "";
+  const scope = familyID ? "family" : "personal";
+  const refreshing = active === shoppingID && !!$("#shoppingForm") && $("#messages").dataset.needScope === (familyID || "personal");
   if (navigate) openMobileContent();
+  $("#messages").hidden = false; $("#onboarding").hidden = true;
   active = shoppingID; saveActive(active); renderConversations();
   $("#chatTitle").textContent = t("shopping");
-  $("#chatSubtitle").textContent = activeFamily(families, familyID)?.title || "";
+  $("#chatSubtitle").textContent = activeFamily(families, familyID)?.title || (userPreferences.locale === "en" ? "Personal" : "Личные");
   $("#composer").hidden = true; resetChatActions();
   if (!refreshing) $("#messages").innerHTML = loadingMarkup();
-  const isCurrent = () => active === shoppingID && familyID === activeFamilyID;
+  const isCurrent = () => active === shoppingID && (!familyID || familyID === activeFamilyID) && scope === (needsScope === "family" && activeFamilyID ? "family" : "personal");
   try {
-    const base = `/families/${encodeURIComponent(familyID)}/needs`;
+    const base = familyID ? `/families/${encodeURIComponent(familyID)}/needs` : "/me/needs";
     const [items, archived] = await Promise.all([request(base), request(base + "?archived=true")]);
     if (version !== loadVersion || !isCurrent()) return;
     shoppingCounter = summarizeShopping(items); renderConversations();
-    mountNeeds({host: $("#messages"), familyID, items: [...items,...archived], request, refresh: () => openShopping(), announce, locale: userPreferences.locale, isCurrent});
+    mountNeeds({host: $("#messages"), familyID, hasFamily: !!activeFamilyID, changeScope: next => { needsScope = next; openShopping(); }, items: [...items,...archived], request, refresh: () => openShopping(), announce, locale: userPreferences.locale, isCurrent});
+    $("#messages").dataset.needScope = familyID || "personal";
   } catch (error) {
     if (version !== loadVersion || !isCurrent()) return;
     if (refreshing) announce(error.message, "error");
@@ -495,6 +509,7 @@ async function startApp() {
   applyInterfacePreferences();
   const savedFamily = localStorage.getItem(activeFamilyKey);
   activeFamilyID = families.some((family) => family.id === savedFamily) ? savedFamily : (families[0]?.id || "");
+  needsScope = activeFamilyID ? "family" : "personal";
   const selector = $("#familySelect");
   selector.innerHTML = families.map((f) => `<option value="${safe(f.id)}">${safe(f.title)}</option>`).join("");
   $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
@@ -502,16 +517,41 @@ async function startApp() {
 	$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
 	$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
   selector.hidden = families.length < 2;
+  selector.value = activeFamilyID;
+  let familySwitchVersion = 0;
   selector.onchange = async () => {
+    if (selector.value === activeFamilyID || !families.some(f => f.id === selector.value)) return;
+    const switchVersion = ++familySwitchVersion;
+    const previous = active;
+    const keepGlobal = previous === personalID ||
+      (previous === shoppingID && needsScope === "personal") ||
+      conversations.some(c => c.id === previous && c.kind === "direct");
+    const section = [shoppingID, childrenID, grandparentsID, groupsID].includes(previous) ? previous : null;
     activeFamilyID = selector.value;
     localStorage.setItem(activeFamilyKey, activeFamilyID);
-    active = null;
+    if (!keepGlobal) {
+      ++loadVersion; active = section;
+      receiptDetails.close();
+      $("#messages").innerHTML = loadingMarkup();
+      $("#composer").hidden = true; resetChatActions();
+      $("#chatTitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
+      $("#chatSubtitle").textContent = "";
+      localStorage.removeItem(activeConversationKey);
+    }
+    const navigationVersion = loadVersion;
 		$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
 		$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
-    localStorage.removeItem(activeConversationKey);
     $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
 		$("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
-    await loadConversations();
+    try {
+      await loadConversations(false);
+      if (switchVersion !== familySwitchVersion || keepGlobal || navigationVersion !== loadVersion) return;
+      const target = section || conversations.find(c => c.kind === "family" && c.familyId === activeFamilyID)?.id;
+      if (target) await openConversation(target, "", false);
+      else await openGroups(false);
+    } catch (error) {
+      if (switchVersion === familySwitchVersion) announce(error.message, "error");
+    }
   };
   $("#currentUserName").textContent = currentUser.Name || "Пользователь";
   $("#currentUserHeader").textContent = currentUser.Name || "Пользователь";
@@ -532,6 +572,7 @@ async function startApp() {
   await loadConversations();
   if (!isNative || (await nativeCapabilities()).incomingShares) initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: (cid) => { scheduleMessageSync(cid); void loadConversations(); } });
   if (isNative && (await nativeCapabilities()).deviceStorage) initDeviceStorage({locale:()=>userPreferences.locale,confirmAction});
+  if (isNative && (await nativeCapabilities()).appUpdates) initAppUpdate({locale:()=>userPreferences.locale,announce});
 }
 const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openApplicationUsers(),announce});
 const openStorageAdmin = initStorageAdmin({request,locale:()=>userPreferences.locale,confirmAction});
@@ -853,6 +894,9 @@ $("#profileAvatarFile").onchange = async (event) => {
 };
 $("#openUserMenu").onclick = () => $("#userMenuDialog").showModal();
 $("#myProfile").onclick = () => { $("#userMenuDialog").close(); openUserCard(currentUser.ID, currentUser.Name, currentUser.AvatarURL); };
+const automationButton=document.createElement('button');automationButton.id='openAutomations';automationButton.type='button';automationButton.className='secondary';automationButton.hidden=true;automationButton.setAttribute('data-no-i18n','');
+$("#openInterfaceSettings").after(automationButton);
+initAutomations({profile:$("#profileDialog"),button:automationButton,request,locale:()=>userPreferences.locale});
 const appearance=createAppearanceSettings({form:$("#interfaceSettingsForm"),dialog:$("#profileDialog"),userID:()=>currentUser?.ID||'',preferences:()=>userPreferences});
 $("#openInterfaceSettings").textContent='Оформление и язык';
 let savingAppearance=false;

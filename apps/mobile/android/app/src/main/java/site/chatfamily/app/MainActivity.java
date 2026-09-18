@@ -19,6 +19,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle state) {
         registerPlugin(IncomingSharePlugin.class);
         registerPlugin(PushEnvironmentPlugin.class);
+        registerPlugin(site.chatfamily.app.update.AppUpdatePlugin.class);
         super.onCreate(state);
         // Do not retain Capacitor's legacy unrestricted JavaScript-interface fallback.
         bridge.getWebView().removeJavascriptInterface("androidBridge");

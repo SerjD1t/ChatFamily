@@ -8,6 +8,8 @@ uploads/
 familychat.exe
 ssh/
 settings.local.json
+downloads/
+*.apk
 __pycache__/
 *.pyc
 apps/mobile/node_modules/

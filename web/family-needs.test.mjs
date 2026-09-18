@@ -20,6 +20,30 @@ test('counters exclude completed, archived and undated from today/overdue',()=>{
  assert.deepEqual(summarizeShopping(items,new Date(2026,8,16,12)),{plannedToday:1,overdue:1,total:3});
 });
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
+
+for (const locale of ['ru','en']) test(`personal needs: scope, private API, no assignee (${locale})`,{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'));};
+ const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
+ try{
+  const host=document.querySelector('main'),calls=[];let scope='';
+  const args={host,familyID:'',hasFamily:true,locale,changeScope:v=>scope=v,items:[items[0]],request:async(path,options)=>{calls.push([path,options]);return {item:items[0],members:[],activity:[],canEdit:true};},refresh:async()=>{},announce:()=>{}};
+  mountNeeds(args);
+  assert.equal(host.querySelector('[name=needScope]:checked').value,'personal');
+  host.querySelector('[data-open]').click();await settle();
+  assert.equal(calls[0][0],'/me/needs/1');
+  assert.equal(host.querySelector('[name=assigneeId]'),null);
+  host.querySelector('[data-close]').click();
+  host.querySelector('[data-add]').click();const form=host.querySelector('#shoppingForm');form.elements.title.value='Private draft';
+  mountNeeds({...args,items:[{...items[0],commentCount:1}]});assert.equal(form.elements.title.value,'Private draft');
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(calls[1][0],'/me/needs');assert.equal(calls[1][1].method,'POST');
+  host.querySelector('[name=needScope][value=family]').click();assert.equal(scope,'family');
+  mountNeeds({...args,familyID:'f1'});assert.equal(host.querySelector('[name=needScope]:checked').value,'family');
+  assert.equal(host.querySelector('#shoppingForm').elements.title.value,'');
+ }finally{dom.window.close();delete globalThis.document;}
+});
 test('list first, visible filter summary, creation retry and duplicate protection',{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};

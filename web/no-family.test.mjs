@@ -32,7 +32,7 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   const $=selector=>document.querySelector(selector);
   assert.equal($('#currentFamilyTitle').textContent,'Без семьи');
   assert.equal($('#newGroup').hidden,true);assert.equal($('#manageCurrentFamily').hidden,true);
-  assert.equal($('#conversations').querySelectorAll('[data-id]').length,1);
+  assert.equal($('#conversations').querySelectorAll('[data-id]').length,2);
   assert.equal($('#onboarding').hidden,!!saved);assert.equal($('#messages').hidden,!saved);
   if(saved==='direct-test'){assert.ok($('[data-message-id="m1"]'));assert.equal($('#composer').hidden,false);}
   $('[data-id="__personal__"]').click();await wait();
@@ -44,6 +44,12 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   $('#body').value='Test message';$('#composer').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await wait();assert.equal(sent,1);
   failContacts=true;$('[data-id="__personal__"]').click();await wait();
   assert.equal($('#messages').hidden,false);assert.match($('#messages').textContent,/Test contacts error/);assert.equal($('#onboarding').hidden,true);
+  $('[data-id="__shopping__"]').click();await wait();
+  assert.ok($('#shoppingForm'));
+  assert.equal($('#messages').hidden,false);assert.equal($('#onboarding').hidden,true);
+  assert.equal($('[name=needScope]:checked').value,'personal');
+  assert.equal($('[name=needScope][value=family]').disabled,true);
+  assert.equal($('#composer').hidden,true);
   dom.window.close();
  });
 }

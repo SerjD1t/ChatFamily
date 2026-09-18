@@ -11,6 +11,7 @@ import (
 )
 
 type realtimeEvent struct {
+	UserID         string `json:"-"`
 	Type           string `json:"type"`
 	ConversationID string `json:"conversationId,omitempty"`
 	MessageID      string `json:"messageId,omitempty"`
@@ -54,6 +55,9 @@ func (h *hub) serve(w http.ResponseWriter, r *http.Request, allowed ...func() bo
 				return
 			}
 		case event := <-updates:
+			if event.UserID != "" && event.UserID != id(r) {
+				continue
+			}
 			if !valid() {
 				return
 			}

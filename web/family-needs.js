@@ -10,14 +10,14 @@ export function filterNeeds(items, {query='',kind='',status='active'}={}) {
   terms.every(t=>`${n.title} ${n.description||''} ${n.assigneeName||''}`.toLocaleLowerCase().replaceAll('ё','е').includes(t)));
 }
 
-export function mountNeeds({host,familyID,items,request,refresh,announce,locale='ru',isCurrent=()=>true}) {
+export function mountNeeds({host,familyID,items,request,refresh,announce,locale='ru',isCurrent=()=>true,hasFamily=!!familyID,changeScope}) {
  const previous=mounted.get(host);
  if(previous?.familyID===familyID && previous.locale===locale && previous.root.isConnected) {previous.update(items);return;}
  const t=(ru,en)=>locale==='en'?en:ru;
  const kindPicker=(name,value,all=false)=>`<fieldset class="needKind"><legend>${t('Тип','Type')}</legend><div>${(all?[['', '≡',t('Все','All')]]:[]).concat([['purchase','🛒',t('Покупка','Purchase')],['task','✓',t('Дело','Task')]]).map(([key,icon,label])=>`<label title="${label}"><input type="radio" name="${name}" value="${key}" ${key===value?'checked':''}><span><i aria-hidden="true">${icon}</i> ${label}</span></label>`).join('')}</div></fieldset>`;
- const base=`/families/${encodeURIComponent(familyID)}/needs`;
+ const base=familyID?`/families/${encodeURIComponent(familyID)}/needs`:"/me/needs";
  const root=document.createElement('section');root.className='needs';root.setAttribute('data-no-i18n','');
- root.innerHTML=`<div class="needsToolbar"><button type="button" class="secondary" data-search aria-expanded="false">${t('Поиск и фильтры','Search and filters')}</button><button type="button" data-add>＋ ${t('Добавить','Add')}</button></div>
+ root.innerHTML=`${changeScope?`<fieldset class="needsStatuses" data-scope><legend class="visuallyHidden">${t("Область","Scope")}</legend>${[["personal",t("Личные","Personal")],["family",t("Семья","Family")]].map(([key,label])=>`<label><input type="radio" name="needScope" value="${key}" ${(familyID?"family":"personal")===key?"checked":""} ${key==="family"&&!hasFamily?"disabled":""}><span>${label}</span></label>`).join("")}</fieldset>`:""}<div class="needsToolbar"><button type="button" class="secondary" data-search aria-expanded="false">${t('Поиск и фильтры','Search and filters')}</button><button type="button" data-add>＋ ${t('Добавить','Add')}</button></div>
  <fieldset class="needsStatuses"><legend class="visuallyHidden">${t('Список','List')}</legend>${[['active',t('Текущие','Active')],['done',t('Выполненные','Completed')],['archive',t('Архив','Archive')]].map(([value,label])=>`<label><input type="radio" name="status" value="${value}" ${value==='active'?'checked':''}><span>${label}</span></label>`).join('')}</fieldset>
  <div class="needsFilters" hidden><label>${t('Поиск','Search')}<input type="search" name="query" placeholder="${t('Название, описание, исполнитель','Title, description, assignee')}"></label>
  ${kindPicker('filterKind','',true)}</div>
@@ -28,6 +28,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
  ${kindPicker('kind','purchase')}
  <label>${t('Срок (необязательно)','Due date (optional)')}<input name="plannedDate" type="date"></label><p class="error" data-create-error role="alert"></p><button type="submit">${t('Добавить','Add')}</button></form></dialog>`;
  host.replaceChildren(root);host.onclick=null;host.onchange=null;
+ root.querySelector('[data-scope]')?.addEventListener('change',e=>changeScope(e.target.value));
  let source=items, busy=false, dialog=null, selected=null, detailRequest=0;
  const form=root.querySelector('form'),list=root.querySelector('ul'),filters=root.querySelector('.needsFilters');
  const createDialog=root.querySelector('.needCreateDialog'),addButton=root.querySelector('[data-add]'),searchButton=root.querySelector('[data-search]');
@@ -55,7 +56,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
   }).join('')||`<li class="muted">${t('Список пуст','No items')}</li>`);
  }
  filters.oninput=render;filters.onchange=render;
- root.querySelector('.needsStatuses').onchange=render;
+ root.querySelector('.needsStatuses:not([data-scope])').onchange=render;
  async function mutate(path,body,method='PATCH') {
   return request(path,{method,body:JSON.stringify(body)});
  }
@@ -100,7 +101,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
     <p data-stale hidden role="status">${t('Запись обновилась. Закройте и откройте карточку, чтобы увидеть изменения.','This item changed. Close and reopen to see updates.')}</p>
     <p class="error" data-error role="alert"></p>
     <section class="needSummary" data-summary><h2>${esc(n.title)}</h2>
-    <div class="needSummaryMeta"><span>${n.kind==='task'?t('✓ Дело','✓ Task'):t('🛒 Покупка','🛒 Purchase')}</span><span>${esc(n.plannedDate?formatShoppingDate(n.plannedDate.slice(0,10),locale):t('Без срока','No due date'))}</span><span>${esc(n.assigneeName||t('Не назначен','Unassigned'))}</span>${n.archivedAt?`<span>${t('В архиве','Archived')}</span>`:''}</div>
+    <div class="needSummaryMeta"><span>${n.kind==='task'?t('✓ Дело','✓ Task'):t('🛒 Покупка','🛒 Purchase')}</span><span>${esc(n.plannedDate?formatShoppingDate(n.plannedDate.slice(0,10),locale):t('Без срока','No due date'))}</span>${familyID?`<span>${esc(n.assigneeName||t('Не назначен','Unassigned'))}</span>`:''}${n.archivedAt?`<span>${t('В архиве','Archived')}</span>`:''}</div>
     ${n.description?`<p class="needDescription">${esc(n.description)}</p>`:''}
     ${n.completedAt?`<small>${t('Выполнено','Completed')}: ${esc(new Date(n.completedAt).toLocaleString(locale))}</small>`:''}
     ${editable?`<button type="button" class="secondary" data-start-edit>${t('Редактировать','Edit')}</button>`:''}</section>
@@ -108,7 +109,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
     <label>${t('Название','Title')}<input name="title" maxlength="160" value="${esc(n.title)}" required></label>
     ${kindPicker('kind',n.kind)}
     <label>${t('Срок (можно оставить пустым)','Due date (optional)')}<input name="plannedDate" type="date" value="${esc(n.plannedDate?.slice(0,10)||'')}"></label>
-    <label>${t('Исполнитель','Assignee')}<select name="assigneeId"><option value="">${t('Не назначен','Unassigned')}</option>${missing}${options}</select></label>
+    ${familyID?`<label>${t('Исполнитель','Assignee')}<select name="assigneeId"><option value="">${t('Не назначен','Unassigned')}</option>${missing}${options}</select></label>`:''}
     <label>${t('Описание','Description')}<textarea name="description" maxlength="4000" rows="3">${esc(n.description)}</textarea></label>
     </fieldset>${editable?`<button>${t('Сохранить','Save')}</button> <button type="button" class="secondary" data-cancel-edit>${t('Отмена','Cancel')}</button>`:''}</form>
     <h4>${t('История и комментарии','History and comments')}</h4><ul class="needActivity" data-comments>${activity(data.activity)}</ul>

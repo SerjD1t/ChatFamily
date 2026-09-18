@@ -107,4 +107,66 @@ func TestFamilyNeeds(t *testing.T) {
 	if _, err = p.NeedDetails(member, family, n.ID); err != nil {
 		t.Fatal("details JSON", err)
 	}
+	personal, err := p.SaveNeed(author, "", "", NeedInput{Title: needPtr("Private"), Kind: needPtr("task")})
+	if err != nil || personal.OwnerUserID == nil || *personal.OwnerUserID != author.ID || personal.FamilyID != "" {
+		t.Fatal("personal creation", err)
+	}
+	defer p.Pool.Exec(ctx, `DELETE FROM shopping_items WHERE id=$1`, personal.ID)
+	appAdmin := chat.User{ID: outsider.ID, Permissions: map[chat.Permission]bool{chat.ManageApplication: true}}
+	for _, other := range []chat.User{member, admin, outsider, appAdmin} {
+		if _, err = p.NeedDetails(other, "", personal.ID); !errors.Is(err, chat.ErrNotFound) {
+			t.Fatal("private details leaked", err)
+		}
+		if _, err = p.SaveNeed(other, "", personal.ID, NeedInput{Completed: needPtr(true)}); !errors.Is(err, chat.ErrNotFound) {
+			t.Fatal("private mutation allowed", err)
+		}
+		if err = p.CommentNeed(other, "", personal.ID, "forbidden"); !errors.Is(err, chat.ErrNotFound) {
+			t.Fatal("private comment allowed", err)
+		}
+		privateList, e := p.ListNeeds(other, "", false)
+		if e != nil || len(privateList) != 0 {
+			t.Fatal("private list leaked", e)
+		}
+	}
+	if _, err = p.NeedDetails(author, family, personal.ID); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatal("personal accessible through family", err)
+	}
+	if _, err = p.NeedDetails(author, "", n.ID); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatal("family accessible through personal", err)
+	}
+	if _, err = p.SaveNeed(author, "", personal.ID, NeedInput{AssigneeID: &member.ID}); !errors.Is(err, chat.ErrInvalid) {
+		t.Fatal("personal assignment", err)
+	}
+	if err = p.CommentNeed(author, "", personal.ID, "private comment"); err != nil {
+		t.Fatal(err)
+	}
+	personal, err = p.SaveNeed(author, "", personal.ID, NeedInput{Completed: needPtr(true), Version: &personal.Version})
+	if err != nil || personal.CompletedAt == nil {
+		t.Fatal("personal completion", err)
+	}
+	if _, err = p.SaveNeed(author, "", personal.ID, NeedInput{Archived: needPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	privateArchive, err := p.ListNeeds(author, "", true)
+	if err != nil || len(privateArchive) != 1 {
+		t.Fatal("private archive", err)
+	}
+	if _, err = p.SaveNeed(author, "", personal.ID, NeedInput{Archived: needPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.NeedDetails(author, "", personal.ID); err != nil {
+		t.Fatal("private history", err)
+	}
+	if _, err = p.Pool.Exec(ctx, `UPDATE shopping_items SET family_id=$1 WHERE id=$2`, family, personal.ID); err == nil {
+		t.Fatal("dual ownership accepted")
+	}
+	if _, err = p.Pool.Exec(ctx, `UPDATE shopping_items SET owner_user_id=NULL WHERE id=$1`, personal.ID); err == nil {
+		t.Fatal("missing ownership accepted")
+	}
+	if _, err = p.Pool.Exec(ctx, `DELETE FROM family_members WHERE user_id=$1`, author.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.NeedDetails(author, "", personal.ID); err != nil {
+		t.Fatal("personal requires family", err)
+	}
 }

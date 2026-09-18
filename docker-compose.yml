@@ -23,6 +23,7 @@ services:
         condition: service_healthy
     volumes:
       - app-uploads:/app/uploads
+      - ./downloads/android:/app/downloads/android:ro
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped

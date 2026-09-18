@@ -177,7 +177,12 @@ main { min-height: 100dvh; }
 .newGroupButton { width: 100%; margin-top: .5rem; }
 .sidebarFooter { margin-top: .45rem; border-top: 1px solid var(--border); padding-top: .4rem; }
 
-.chat { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; min-width: 0; height: 100dvh; padding: 0 clamp(1rem, 3vw, 2.25rem); background: var(--surface); }
+.chat { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; min-width: 0; height: 100dvh; padding: 0 clamp(1rem, 3vw, 2.25rem); background: var(--surface); }
+/* Do not let the implicit grid column grow to header/textarea min-content width. */
+.chat > * { min-width: 0; max-width: 100%; }
+.message .bubble { min-width: 0; overflow-wrap: anywhere; }
+.receiptInfo { min-width: 0; max-width: 100%; }
+.receiptCount { overflow-wrap: anywhere; }
 .chatHead { position: relative; z-index: 3; display: flex; min-height: 4.5rem; align-items: center; justify-content: space-between; gap: .75rem; border-bottom: 1px solid var(--border); background: var(--surface); }
 .chatHeading { min-width: 0; flex: 1; }
 .chatHeading h2 { margin: 0; overflow: hidden; font-size: 1.15rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -233,7 +238,7 @@ dialog.receiptDialog { width:min(32rem,calc(100vw - 2rem)); box-sizing:border-bo
 .reactionAdd { margin-left: auto; }
 .loadOlder { display: block; margin: 0 auto 1rem; }
 .composer { display: flex; width: min(100%, 78rem); align-items: end; gap: .55rem; margin: 0 auto; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
-.composer textarea { min-height: 2.75rem; margin: 0; padding-block: .66rem; }
+.composer textarea { flex: 1 1 0; min-width: 0; min-height: 2.75rem; margin: 0; padding-block: .66rem; }
 .sendButton { flex: 0 0 2.75rem; width: 2.75rem; padding: .35rem; font-size: 0; }
 .sendButton::before { content: "➤"; font-size: 1.15rem; }
 .replyPreview, .attachmentList { width: min(100%, 78rem); margin: 0 auto; padding: .45rem .7rem; border-left: 3px solid var(--accent); background: var(--surface-muted); color: var(--text-muted); font-size: .8rem; }
@@ -355,10 +360,10 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
   .chat { display: none; width: 100%; height: 100dvh; min-height: 0; padding: 0 .75rem; }
   .mobileContentOpen .sidebar { display: none; }
   .mobileContentOpen .chat { display: grid; }
-  .chatHead { min-height: calc(3.75rem + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  .chatHead { min-height: calc(3.75rem + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); flex-wrap: wrap; gap: .35rem .6rem; padding-bottom: .35rem; }
   .chatHeading h2 { font-size: 1rem; }
-  .chatActions { gap: .25rem; }
-  .contextualAction { max-width: 6.5rem; padding-inline: .65rem; }
+  .chatActions { flex: 0 0 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: .25rem; }
+  .contextualAction { max-width: 100%; padding-inline: .65rem; overflow-wrap: anywhere; }
   #messages { padding: .65rem 0; }
   .message .bubble { max-width: 88%; }
   .composer { padding-bottom: calc(.55rem + env(safe-area-inset-bottom)); }
@@ -478,3 +483,5 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
   dialog.needCreateDialog { margin:auto 0 0; width:100%; max-width:100%; max-height:85dvh; border-radius:var(--radius-lg) var(--radius-lg) 0 0; padding-bottom:max(1rem,env(safe-area-inset-bottom)); }
   .needsFilters { grid-template-columns:minmax(0,1fr); }
 }
+.automationToggle { display:flex; align-items:center; gap:.6rem; }
+.automationToggle input { width:1.15rem; height:1.15rem; flex:0 0 auto; }

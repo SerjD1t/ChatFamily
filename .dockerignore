@@ -11,5 +11,7 @@ uploads
 .test-tmp
 apps
 settings.local.json
+downloads
+**/*.apk
 **/__pycache__/
 **/*.pyc

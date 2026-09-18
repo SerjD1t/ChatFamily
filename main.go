@@ -81,6 +81,10 @@ func main() {
 		slog.Error("FCM configuration invalid; native push disabled")
 	}
 	mux := a.routes()
+	reportContext, stopReports := context.WithCancel(context.Background())
+	reportsDone := make(chan struct{})
+	go func() { defer close(reportsDone); a.dailyReports(reportContext) }()
+	defer func() { stopReports(); <-reportsDone }()
 
 	server := &http.Server{Addr: cfg.Addr, Handler: headers(requestDeadline(mux)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	slog.Info("семейный чат запущен", "address", cfg.Addr)

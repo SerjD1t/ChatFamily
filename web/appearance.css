@@ -63,7 +63,9 @@ html[data-text-size="large"] :is(.needsAdd input,.needsFilters input,.needDialog
 #interfaceSettingsForm .actions { display:flex; flex-wrap:wrap; gap:.4rem; }
 @media(max-width:767px),(pointer:coarse) {
  html:is([data-density="compact"],[data-density="spacious"]) :is(button:not(.messageAuthor),input:not([type="checkbox"]):not([type="radio"]),select,.needKind span,.needsStatuses span) { min-height:44px; }
- html[data-text-size]:not([data-text-size="normal"]) :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size:max(1em,16px); }
+ /* Labels can be smaller than body text even in normal/default mode. Keep
+    focused form controls readable without disabling the user's pinch zoom. */
+ html:root :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size:max(1em,16px); }
  html:is([data-density="compact"],[data-density="spacious"]) .panelHeader { padding-top:calc(var(--section-gap) + env(safe-area-inset-top)); }
  html:is([data-density="compact"],[data-density="spacious"]) .panelFooter { padding-bottom:calc(var(--section-gap) + env(safe-area-inset-bottom)); }
 }

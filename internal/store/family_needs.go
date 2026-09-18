@@ -39,24 +39,26 @@ type NeedMember struct {
 	Name string `json:"name"`
 }
 
-const needColumns = `s.id,s.family_id,s.title,s.planned_date,s.completed_at,s.created_by,s.created_at,s.kind,s.description,s.assignee_id,s.archived_at,s.version,
+const needColumns = `s.id,COALESCE(s.family_id,''),s.title,s.planned_date,s.completed_at,s.created_by,s.created_at,s.kind,s.description,s.assignee_id,s.archived_at,s.version,
  COALESCE((SELECT display_name FROM users WHERE id=s.assignee_id),''),
- (SELECT count(*) FROM family_need_activity WHERE item_id=s.id AND action='comment')`
+ (SELECT count(*) FROM family_need_activity WHERE item_id=s.id AND action='comment'),s.owner_user_id`
 
 func scanNeed(row pgx.Row) (chat.ShoppingItem, error) {
 	var n chat.ShoppingItem
-	err := row.Scan(&n.ID, &n.FamilyID, &n.Title, &n.PlannedDate, &n.CompletedAt, &n.CreatedBy, &n.CreatedAt, &n.Kind, &n.Description, &n.AssigneeID, &n.ArchivedAt, &n.Version, &n.AssigneeName, &n.CommentCount)
+	err := row.Scan(&n.ID, &n.FamilyID, &n.Title, &n.PlannedDate, &n.CompletedAt, &n.CreatedBy, &n.CreatedAt, &n.Kind, &n.Description, &n.AssigneeID, &n.ArchivedAt, &n.Version, &n.AssigneeName, &n.CommentCount, &n.OwnerUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = chat.ErrNotFound
 	}
 	return n, err
 }
 
+// An empty familyID selects the authenticated actor's personal scope.
+// Ownership never comes from request fields; every item query checks the scope.
 func (p *Postgres) ListNeeds(actor chat.User, familyID string, archived bool) ([]chat.ShoppingItem, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
+	if actor.ID == "" || (familyID != "" && !p.FamilyMember(actor.ID, familyID)) {
 		return nil, chat.ErrForbidden
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT `+needColumns+` FROM shopping_items s WHERE s.family_id=$1 AND (s.archived_at IS NOT NULL)=$2 ORDER BY s.completed_at NULLS FIRST,s.planned_date NULLS LAST,s.created_at DESC,s.id`, familyID, archived)
+	rows, err := p.Pool.Query(context.Background(), `SELECT `+needColumns+` FROM shopping_items s WHERE ((s.family_id=$1 AND $1!='') OR ($1='' AND s.owner_user_id=$3)) AND (s.archived_at IS NOT NULL)=$2 ORDER BY s.completed_at NULLS FIRST,s.planned_date NULLS LAST,s.created_at DESC,s.id`, familyID, archived, actor.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -73,11 +75,11 @@ func (p *Postgres) ListNeeds(actor chat.User, familyID string, archived bool) ([
 }
 
 func (p *Postgres) NeedDetails(actor chat.User, familyID, itemID string) (any, error) {
-	if !p.FamilyMember(actor.ID, familyID) {
+	if actor.ID == "" || (familyID != "" && !p.FamilyMember(actor.ID, familyID)) {
 		return nil, chat.ErrForbidden
 	}
 	ctx := context.Background()
-	n, err := scanNeed(p.Pool.QueryRow(ctx, `SELECT `+needColumns+` FROM shopping_items s WHERE s.family_id=$1 AND s.id=$2`, familyID, itemID))
+	n, err := scanNeed(p.Pool.QueryRow(ctx, `SELECT `+needColumns+` FROM shopping_items s WHERE ((s.family_id=$1 AND $1!='') OR ($1='' AND s.owner_user_id=$3)) AND s.id=$2`, familyID, itemID, actor.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -141,19 +143,27 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 		return chat.ShoppingItem{}, err
 	}
 	defer tx.Rollback(ctx)
-	var role string
-	err = tx.QueryRow(ctx, `SELECT role FROM family_members WHERE user_id=$1 AND family_id=$2 FOR SHARE`, actor.ID, familyID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if actor.ID == "" {
 		return chat.ShoppingItem{}, chat.ErrForbidden
 	}
-	if err != nil {
-		return chat.ShoppingItem{}, err
+	var role string
+	if familyID != "" {
+		err = tx.QueryRow(ctx, `SELECT role FROM family_members WHERE user_id=$1 AND family_id=$2 FOR SHARE`, actor.ID, familyID).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return chat.ShoppingItem{}, chat.ErrForbidden
+		}
+		if err != nil {
+			return chat.ShoppingItem{}, err
+		}
 	}
 	creating := itemID == ""
 	n := chat.ShoppingItem{ID: id(), FamilyID: familyID, Kind: "purchase", CreatedBy: actor.ID, CreatedAt: time.Now().UTC().Truncate(time.Microsecond), Version: 1}
+	if familyID == "" {
+		n.OwnerUserID = &actor.ID
+	}
 	var before *chat.ShoppingItem
 	if !creating {
-		n, err = scanNeed(tx.QueryRow(ctx, `SELECT `+needColumns+` FROM shopping_items s WHERE s.id=$1 AND s.family_id=$2 FOR UPDATE OF s`, itemID, familyID))
+		n, err = scanNeed(tx.QueryRow(ctx, `SELECT `+needColumns+` FROM shopping_items s WHERE s.id=$1 AND ((s.family_id=$2 AND $2!='') OR ($2='' AND s.owner_user_id=$3)) FOR UPDATE OF s`, itemID, familyID, actor.ID))
 		if err != nil {
 			return n, err
 		}
@@ -191,6 +201,9 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 			}
 			n.PlannedDate = &date
 		}
+	}
+	if familyID == "" && in.AssigneeID != nil && *in.AssigneeID != "" {
+		return n, chat.ErrInvalid
 	}
 	if in.AssigneeID != nil {
 		n.AssigneeID = nil
@@ -232,7 +245,7 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 		return n, tx.Commit(ctx)
 	}
 	if creating {
-		_, err = tx.Exec(ctx, `INSERT INTO shopping_items(id,family_id,title,planned_date,completed_at,created_by,created_at,kind,description,assignee_id,archived_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, n.ID, n.FamilyID, n.Title, n.PlannedDate, n.CompletedAt, n.CreatedBy, n.CreatedAt, n.Kind, n.Description, n.AssigneeID, n.ArchivedAt)
+		_, err = tx.Exec(ctx, `INSERT INTO shopping_items(id,family_id,title,planned_date,completed_at,created_by,created_at,kind,description,assignee_id,archived_at,owner_user_id) VALUES($1,NULLIF($2,''),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, n.ID, n.FamilyID, n.Title, n.PlannedDate, n.CompletedAt, n.CreatedBy, n.CreatedAt, n.Kind, n.Description, n.AssigneeID, n.ArchivedAt, n.OwnerUserID)
 	} else {
 		n.Version++
 		_, err = tx.Exec(ctx, `UPDATE shopping_items SET title=$1,planned_date=$2,completed_at=$3,kind=$4,description=$5,assignee_id=$6,archived_at=$7,version=$8,updated_at=now() WHERE id=$9`, n.Title, n.PlannedDate, n.CompletedAt, n.Kind, n.Description, n.AssigneeID, n.ArchivedAt, n.Version, n.ID)
@@ -275,15 +288,20 @@ func (p *Postgres) CommentNeed(actor chat.User, familyID, itemID, body string) e
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if actor.ID == "" {
+		return chat.ErrForbidden
+	}
 	var member string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM family_members WHERE family_id=$1 AND user_id=$2 FOR SHARE`, familyID, actor.ID).Scan(&member); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return chat.ErrForbidden
+	if familyID != "" {
+		if err = tx.QueryRow(ctx, `SELECT user_id FROM family_members WHERE family_id=$1 AND user_id=$2 FOR SHARE`, familyID, actor.ID).Scan(&member); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return chat.ErrForbidden
+			}
+			return err
 		}
-		return err
 	}
 	var archived *time.Time
-	if err = tx.QueryRow(ctx, `SELECT archived_at FROM shopping_items WHERE family_id=$1 AND id=$2 FOR UPDATE`, familyID, itemID).Scan(&archived); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT archived_at FROM shopping_items WHERE ((family_id=$1 AND $1!='') OR ($1='' AND owner_user_id=$3)) AND id=$2 FOR UPDATE`, familyID, itemID, actor.ID).Scan(&archived); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return chat.ErrNotFound
 		}

@@ -17,6 +17,7 @@ public class PushEnvironmentPlugin extends Plugin {
         result.put("installationId",id);
         result.put("bridgeVersion",3);
         result.put("deviceStorage",true);
+        result.put("appUpdates",true);
         result.put("remoteInterface",true);
         result.put("incomingShares",true);
         result.put("nativePush",true);
