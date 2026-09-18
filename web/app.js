@@ -1,7 +1,8 @@
 import { api, $, request, safe } from "./api.js";
 import { initJoinFamily } from "./join-family.js";
 import { initUserLifecycle } from "./user-lifecycle.js";
-import { mountDirectory } from "./directory.js";
+import { mountDirectory, personalChatOrder } from "./directory.js";
+let refreshPersonalDirectory = null;
 import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/runtime.js";
 import { initIncomingShares } from "./mobile/incoming-share.js";
 import { initDeviceStorage } from "./mobile/device-storage.js";
@@ -132,7 +133,6 @@ const familyCategoryDefinitions = [
   ["guardian", "Опекун"],
   ["relative", "Родственник"],
 ];
-let needsScope = "family";
 const familySections = [
   [childrenID, "children", "child", "👶"],
   [grandparentsID, "grandparents", "grandparent", "👵"],
@@ -213,7 +213,7 @@ function renderConversations() {
   const sectionButton = (id, title, icon, unread = 0) => button({ id, title, unreadCount: unread }, icon);
   const navigationHTML =
     sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    button({id: shoppingID, title: t("shopping"), lastMessage: `${needsScope === "family" && activeFamilyID ? t("family") : (userPreferences.locale === "en" ? "Personal" : "Личные")} · ${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, "🛒") +
+    button({id: shoppingID, title: t("shopping"), lastMessage: `${activeFamilyID ? (userPreferences.locale === "en" ? "Personal + family" : "Личные и семья") : (userPreferences.locale === "en" ? "Personal" : "Личные")} · ${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, "🛒") +
     (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.filter(([id]) => id !== shoppingID).map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
     favorites.filter((conversation) => visibleGroups.some((item) => item.id === conversation.id)).map((conversation) => button(conversation, "★")).join("") +
     visibleGroups.filter((conversation) => !favoriteIDs.has(conversation.id)).map((conversation) => button(conversation, "#")).join("") +
@@ -226,14 +226,15 @@ function renderConversations() {
 }
 $("#conversationFilter").oninput = renderConversations;
 async function loadConversations(navigateIfEmpty = true) {
-  const familyID = activeFamilyID, scope = needsScope;
+  const familyID = activeFamilyID;
   const [list, favorites, shoppingItems] = await Promise.all([
     request("/conversations"),
     request("/favorites"),
-    request(needsScope === "family" && activeFamilyID ? `/families/${encodeURIComponent(activeFamilyID)}/shopping` : "/me/needs").catch(() => []),
+    Promise.all([request('/me/needs'), ...(familyID ? [request(`/families/${encodeURIComponent(familyID)}/needs`)] : [])]).then(parts=>parts.flat()).catch(() => []),
   ]);
-  if (familyID !== activeFamilyID || scope !== needsScope) return;
+  if (familyID !== activeFamilyID) return;
   conversations = list;
+  if (active === personalID) refreshPersonalDirectory?.();
   favoriteIDs = new Set(favorites);
   shoppingCounter = summarizeShopping(shoppingItems);
   renderConversations();
@@ -324,10 +325,9 @@ async function openPersonal() {
   try {
     const contacts = await request(`/contacts?familyId=${encodeURIComponent(activeFamilyID)}`);
     if (version !== loadVersion || active !== personalID) return;
-    const chats = directChats();
     $("#messages").innerHTML = '<div id="personalDirectory" class="personalList"></div>';
-    mountDirectory({list:$("#personalDirectory"),users:contacts,locale:()=>userPreferences.locale,render:(u) => {
-            const chat = chats.find((c) => c.peerUserId === u.ID),
+    refreshPersonalDirectory = mountDirectory({list:$("#personalDirectory"),users:contacts,locale:()=>userPreferences.locale,order:items=>personalChatOrder(items,directChats(),userPreferences.locale),render:(u) => {
+            const chat = directChats().find((c) => c.peerUserId === u.ID),
               unread = chat?.unreadCount || 0,
               isSelf = u.ID === currentUser.ID;
             return contactMarkup({ id: u.ID, name: u.Name, self: isSelf, subtitle: u.familyRelationship || "Неопределено", preview: chat?.lastMessage, time: formatConversationTime(chat?.lastMessageAt, userPreferences.locale), unread });
@@ -461,9 +461,8 @@ async function openFamilyCategory(sectionID, navigate = true) {
 
 async function openShopping(navigate = false) {
   const version = ++loadVersion;
-  const familyID = needsScope === "family" ? activeFamilyID : "";
-  const scope = familyID ? "family" : "personal";
-  const refreshing = active === shoppingID && !!$("#shoppingForm") && $("#messages").dataset.needScope === (familyID || "personal");
+  const familyID = activeFamilyID;
+  const refreshing = active === shoppingID && !!$("#shoppingForm");
   if (navigate) openMobileContent();
   $("#messages").hidden = false; $("#onboarding").hidden = true;
   active = shoppingID; saveActive(active); renderConversations();
@@ -471,13 +470,14 @@ async function openShopping(navigate = false) {
   $("#chatSubtitle").textContent = activeFamily(families, familyID)?.title || (userPreferences.locale === "en" ? "Personal" : "Личные");
   $("#composer").hidden = true; resetChatActions();
   if (!refreshing) $("#messages").innerHTML = loadingMarkup();
-  const isCurrent = () => active === shoppingID && (!familyID || familyID === activeFamilyID) && scope === (needsScope === "family" && activeFamilyID ? "family" : "personal");
+  const isCurrent = () => active === shoppingID && familyID === activeFamilyID;
   try {
-    const base = familyID ? `/families/${encodeURIComponent(familyID)}/needs` : "/me/needs";
-    const [items, archived] = await Promise.all([request(base), request(base + "?archived=true")]);
+    const bases = ['/me/needs', ...(familyID ? [`/families/${encodeURIComponent(familyID)}/needs`] : [])];
+    const parts = await Promise.all(bases.flatMap(base=>[request(base),request(base+'?archived=true')]));
+    const items=parts.flat().sort((a,b)=>(a.plannedDate||'9999').localeCompare(b.plannedDate||'9999') || a.id.localeCompare(b.id));
     if (version !== loadVersion || !isCurrent()) return;
     shoppingCounter = summarizeShopping(items); renderConversations();
-    mountNeeds({host: $("#messages"), familyID, hasFamily: !!activeFamilyID, changeScope: next => { needsScope = next; openShopping(); }, items: [...items,...archived], request, refresh: () => openShopping(), announce, locale: userPreferences.locale, isCurrent});
+    mountNeeds({host: $("#messages"), familyID, items, request, refresh: () => openShopping(), announce, locale: userPreferences.locale, isCurrent,currentUserID:currentUser.ID});
     $("#messages").dataset.needScope = familyID || "personal";
   } catch (error) {
     if (version !== loadVersion || !isCurrent()) return;
@@ -509,7 +509,6 @@ async function startApp() {
   applyInterfacePreferences();
   const savedFamily = localStorage.getItem(activeFamilyKey);
   activeFamilyID = families.some((family) => family.id === savedFamily) ? savedFamily : (families[0]?.id || "");
-  needsScope = activeFamilyID ? "family" : "personal";
   const selector = $("#familySelect");
   selector.innerHTML = families.map((f) => `<option value="${safe(f.id)}">${safe(f.title)}</option>`).join("");
   $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
@@ -524,10 +523,15 @@ async function startApp() {
     const switchVersion = ++familySwitchVersion;
     const previous = active;
     const keepGlobal = previous === personalID ||
-      (previous === shoppingID && needsScope === "personal") ||
+      previous === shoppingID ||
       conversations.some(c => c.id === previous && c.kind === "direct");
     const section = [shoppingID, childrenID, grandparentsID, groupsID].includes(previous) ? previous : null;
     activeFamilyID = selector.value;
+    if(previous===shoppingID){
+      // Remove the old family's rows immediately; retain private drafts and filters.
+      mountNeeds({host:$('#messages'),familyID:activeFamilyID,items:[],request,refresh:()=>openShopping(),announce,locale:userPreferences.locale,isCurrent:()=>active===shoppingID,currentUserID:currentUser.ID});
+      openShopping();
+    }
     localStorage.setItem(activeFamilyKey, activeFamilyID);
     if (!keepGlobal) {
       ++loadVersion; active = section;
@@ -658,12 +662,6 @@ function openApplicationPermissions(user) {
   $("#permissionsTitle").textContent = `Права приложения: ${user.Name}`;
   const items = [
     ["manage_application", "Администратор приложения", "Открывает раздел администрирования и позволяет назначать права всем пользователям."],
-    ["send_messages", "Отправка сообщений", "Позволяет писать сообщения в доступных чатах и отправлять вложения."],
-    ["edit_own_messages", "Изменение своих сообщений", "Позволяет исправлять только собственные отправленные сообщения."],
-    ["delete_own_messages", "Удаление своих сообщений", "Позволяет помечать собственные сообщения как удалённые."],
-    ["create_groups", "Создание групп", "Позволяет создавать групповые чаты в семьях, где у пользователя есть роль администратора."],
-    ["manage_group_members", "Участники групп", "Позволяет добавлять и удалять участников групп в администрируемой семье."],
-    ["manage_group_settings", "Настройки групп", "Позволяет менять название и архивировать группы в администрируемой семье."],
   ];
   $("#permissionList").innerHTML = items.map(([value, label, help]) => `<label><input type="checkbox" value="${value}" ${user.Permissions?.[value] ? "checked" : ""}><span><strong>${label}</strong><small>${help}</small></span></label>`).join("");
   $("#permissionsDialog").showModal();
@@ -986,9 +984,9 @@ $("#cancelFamilyMemberEdit").onclick = () => { if (!familyMemberSaving) $("#fami
 $("#familyMemberEditDialog").oncancel = (event) => { if (familyMemberSaving) event.preventDefault(); };
 $("#familyMemberEditDialog").onclose = () => { editingFamilyMember = null; };
 $("#closeFamilyAdmin").onclick = () => $("#familyAdminDialog").close();
-$("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; delete $("#familyInviteToken").dataset.token; $("#familyInviteDialog").showModal(); };
+$("#inviteFamily").onclick = () => { const family = activeFamily(families, activeFamilyID); if (!family) return; $("#familyInviteRole").value = "member"; $("#familyInviteRole").disabled = family.role !== "owner" && !currentUser.Permissions?.manage_application; $("#familyInviteFamily").textContent = `Семья: ${family.title}`; $("#familyInviteError").textContent = ""; $("#familyInviteToken").hidden = true; delete $("#familyInviteToken").dataset.token; $("#familyInviteDialog").showModal(); };
 $("#closeFamilyInvite").onclick = () => $("#familyInviteDialog").close();
-$("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено", permissions: ["send_messages", "edit_own_messages", "delete_own_messages", "create_groups"] }) }); $("#familyInviteToken").dataset.token = invite.token; $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };
+$("#familyInviteForm").onsubmit = async (event) => { event.preventDefault(); try { const invite = await request("/invitations", { method: "POST", body: JSON.stringify({ email: $("#familyInviteEmail").value.trim(), familyId: activeFamilyID, familyRole: $("#familyInviteRole").value, relationship: $("#familyInviteRelationship").value.trim() || "Неопределено" }) }); $("#familyInviteToken").dataset.token = invite.token; $("#familyInviteTokenText").textContent = `Одноразовый код: ${invite.token}`; $("#familyInviteToken").hidden = false; $("#familyInviteEmail").value = ""; $("#familyInviteError").textContent = invite.mailSent === false ? "Приглашение создано, но письмо не отправлено. Передайте код вручную." : ""; } catch (error) { $("#familyInviteError").textContent = error.message; } };
 $("#copyFamilyInviteToken").onclick = async () => { const code = $("#familyInviteToken").dataset.token || ""; if (!code) return; try { await navigator.clipboard.writeText(code); $("#copyFamilyInviteToken").textContent = "Скопировано"; setTimeout(() => { $("#copyFamilyInviteToken").textContent = "Скопировать"; }, 1500); } catch { $("#familyInviteError").textContent = "Не удалось скопировать код. Скопируйте его вручную."; } };
 $("#closeFamily").onclick = () => $("#familyDialog").close();
 $("#familyForm").onsubmit = async (e) => {

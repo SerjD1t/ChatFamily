@@ -47,8 +47,9 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   $('[data-id="__shopping__"]').click();await wait();
   assert.ok($('#shoppingForm'));
   assert.equal($('#messages').hidden,false);assert.equal($('#onboarding').hidden,true);
-  assert.equal($('[name=needScope]:checked').value,'personal');
-  assert.equal($('[name=needScope][value=family]').disabled,true);
+  assert.equal($('[name=needScope]'),null);
+  assert.equal($('[name=createScope]').value,'personal');
+  assert.equal($('[name=createScope] option[value=family]').disabled,true);
   assert.equal($('#composer').hidden,true);
   dom.window.close();
  });

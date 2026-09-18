@@ -177,9 +177,6 @@ func (p *Postgres) CreateGroup(a chat.User, title string, ids []string) (chat.Co
 	return chat.Conversation{ID: id, Kind: chat.Group, Title: title, Members: p.members(id)}, nil
 }
 func (p *Postgres) CreateMessage(a chat.User, cid, body string, attachments []chat.Attachment) (chat.Message, error) {
-	if !a.Permissions[chat.SendMessages] {
-		return chat.Message{}, chat.ErrForbidden
-	}
 	body = strings.TrimSpace(body)
 	if (body == "" && len(attachments) == 0) || len([]rune(body)) > 4000 {
 		return chat.Message{}, chat.ErrInvalid
@@ -247,15 +244,12 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	return out, nil
 }
 func (p *Postgres) EditMessage(a chat.User, mid, body string) (chat.Message, error) {
-	if !a.Permissions[chat.EditOwnMessages] {
-		return chat.Message{}, chat.ErrForbidden
-	}
 	body = strings.TrimSpace(body)
 	if body == "" || len([]rune(body)) > 4000 {
 		return chat.Message{}, chat.ErrInvalid
 	}
 	now := time.Now().UTC()
-	row := p.Pool.QueryRow(context.Background(), `UPDATE messages SET body=$1,edited_at=$2 WHERE id=$3 AND author_id=$4 AND deleted_at IS NULL RETURNING conversation_id`, body, now, mid, a.ID)
+	row := p.Pool.QueryRow(context.Background(), `UPDATE messages SET body=$1,edited_at=$2 WHERE id=$3 AND author_id=$4 AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM conversation_members cm JOIN conversations c ON c.id=cm.conversation_id WHERE cm.conversation_id=messages.conversation_id AND cm.user_id=$4 AND c.archived_at IS NULL) RETURNING conversation_id`, body, now, mid, a.ID)
 	var cid string
 	if e := row.Scan(&cid); e != nil {
 		return chat.Message{}, chat.ErrForbidden
@@ -263,12 +257,9 @@ func (p *Postgres) EditMessage(a chat.User, mid, body string) (chat.Message, err
 	return chat.Message{ID: mid, ConversationID: cid, AuthorID: a.ID, AuthorName: a.Name, Body: body, EditedAt: &now}, nil
 }
 func (p *Postgres) DeleteMessage(a chat.User, mid string) (chat.Message, error) {
-	if !a.Permissions[chat.DeleteOwnMessages] {
-		return chat.Message{}, chat.ErrForbidden
-	}
 	now := time.Now().UTC()
 	var cid string
-	if e := p.Pool.QueryRow(context.Background(), `UPDATE messages SET body='',deleted_at=$1 WHERE id=$2 AND author_id=$3 AND deleted_at IS NULL RETURNING conversation_id`, now, mid, a.ID).Scan(&cid); e != nil {
+	if e := p.Pool.QueryRow(context.Background(), `UPDATE messages SET body='',deleted_at=$1 WHERE id=$2 AND author_id=$3 AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM conversation_members cm JOIN conversations c ON c.id=cm.conversation_id WHERE cm.conversation_id=messages.conversation_id AND cm.user_id=$3 AND c.archived_at IS NULL) RETURNING conversation_id`, now, mid, a.ID).Scan(&cid); e != nil {
 		return chat.Message{}, chat.ErrForbidden
 	}
 	return chat.Message{ID: mid, ConversationID: cid, AuthorID: a.ID, AuthorName: a.Name, DeletedAt: &now}, nil

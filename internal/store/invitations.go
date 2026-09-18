@@ -26,6 +26,9 @@ func (p *Postgres) CreateInvitation(actor chat.User, familyID, email string, gra
 	if role != chat.FamilyMember && role != chat.FamilyAdmin {
 		return "", chat.ErrInvalid
 	}
+	if role == chat.FamilyAdmin && !p.FamilyOwner(actor.ID, familyID) && !actor.Permissions[chat.ManageApplication] {
+		return "", chat.ErrForbidden
+	}
 	if relationship = strings.TrimSpace(relationship); relationship == "" {
 		relationship = "Неопределено"
 	}
@@ -35,10 +38,15 @@ func (p *Postgres) CreateInvitation(actor chat.User, familyID, email string, gra
 	}
 	token := base64.RawURLEncoding.EncodeToString(b)
 	hash := sha256.Sum256([]byte(token))
-	permissions := make([]string, len(granted))
-	for i, permission := range granted {
-		permissions[i] = string(permission)
+	// Legacy basic flags are harmless; invitations must never grant platform roles.
+	for _, permission := range granted {
+		switch permission {
+		case chat.SendMessages, chat.EditOwnMessages, chat.DeleteOwnMessages, chat.CreateGroups, chat.ManageGroupMembers, chat.ManageGroupSettings:
+		default:
+			return "", chat.ErrForbidden
+		}
 	}
+	permissions := []string{}
 	_, err := p.Pool.Exec(context.Background(), `INSERT INTO invitations(id,family_id,email,token_hash,permissions,family_role,relationship,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id(), familyID, email, hash[:], permissions, role, relationship, expiresAt.UTC())
 	return token, err
 }
@@ -66,6 +74,8 @@ func (p *Postgres) AcceptInvitation(token, name, password string, minPasswordLen
 	if err != nil {
 		return chat.User{}, err
 	}
+	// Ignore permissions in previously issued invitations as well.
+	permissions = []string{}
 	u := chat.User{ID: id(), Email: email, Name: name, Permissions: permissionMap(permissions)}
 	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,password_hash,permissions) VALUES($1,$2,$3,$4,$5)`, u.ID, u.Email, u.Name, string(passwordHash), permissions); err != nil {
 		return chat.User{}, err

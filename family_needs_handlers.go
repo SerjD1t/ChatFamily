@@ -16,6 +16,7 @@ func (a *app) needs(w http.ResponseWriter, r *http.Request) {
 	var result any
 	var err error
 	status := http.StatusOK
+	transferred := false
 	switch {
 	case r.Method == "GET" && itemID == "":
 		result, err = a.db.ListNeeds(actor, familyID, r.URL.Query().Get("archived") == "true")
@@ -37,6 +38,7 @@ func (a *app) needs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		result, err = a.db.SaveNeed(actor, familyID, itemID, in)
+		transferred = in.TargetFamilyID != nil && *in.TargetFamilyID != familyID
 		if r.Method == "POST" {
 			status = http.StatusCreated
 		}
@@ -52,7 +54,7 @@ func (a *app) needs(w http.ResponseWriter, r *http.Request) {
 	write(w, status, result)
 	if r.Method != "GET" {
 		event := realtimeEvent{Type: "shopping.changed"}
-		if familyID == "" {
+		if familyID == "" && !transferred {
 			event.UserID = actor.ID
 		}
 		a.hub.publish(event)

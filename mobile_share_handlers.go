@@ -39,7 +39,7 @@ func (a *app) mobileShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := a.user(id(r))
-	if !actor.Permissions[chat.SendMessages] {
+	if actor.ID == "" {
 		domainError(w, chat.ErrForbidden)
 		return
 	}

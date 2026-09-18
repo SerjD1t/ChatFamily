@@ -44,12 +44,15 @@ func (a *app) notifyMessage(message chat.Message) {
 		}
 	}
 }
-func (a *app) notifyReaction(conversationID, author, emoji string) {
-	go a.notifyMobile(conversationID, "", "reaction")
+func (a *app) notifyReaction(conversationID, actorID, author, emoji string) {
+	if actorID == "" {
+		return
+	}
+	go a.notifyMobile(conversationID, actorID, "reaction")
 	if a.db == nil || a.cfg.VAPIDPublicKey == "" || a.cfg.VAPIDPrivateKey == "" {
 		return
 	}
-	subscriptions, err := a.db.PushSubscriptions(conversationID, "")
+	subscriptions, err := a.db.PushSubscriptions(conversationID, actorID)
 	if err != nil {
 		return
 	}

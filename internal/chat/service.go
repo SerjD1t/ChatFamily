@@ -91,9 +91,6 @@ func (s *Service) CreateGroup(actor User, title string, members []string) (Conve
 	return *c, nil
 }
 func (s *Service) CreateMessage(actor User, conversationID, body string, attachments []Attachment) (Message, error) {
-	if !actor.Permissions[SendMessages] {
-		return Message{}, ErrForbidden
-	}
 	body = strings.TrimSpace(body)
 	if body == "" && len(attachments) == 0 || len([]rune(body)) > 4000 {
 		return Message{}, ErrInvalid
@@ -131,9 +128,6 @@ func (s *Service) Messages(actor User, conversationID string) ([]Message, error)
 	return out, nil
 }
 func (s *Service) EditMessage(actor User, messageID, body string) (Message, error) {
-	if !actor.Permissions[EditOwnMessages] {
-		return Message{}, ErrForbidden
-	}
 	body = strings.TrimSpace(body)
 	if body == "" || len([]rune(body)) > 4000 {
 		return Message{}, ErrInvalid
@@ -144,7 +138,7 @@ func (s *Service) EditMessage(actor User, messageID, body string) (Message, erro
 	if m == nil {
 		return Message{}, ErrNotFound
 	}
-	if m.AuthorID != actor.ID || m.DeletedAt != nil {
+	if m.AuthorID != actor.ID || m.DeletedAt != nil || !s.conversations[m.ConversationID].Members[actor.ID] {
 		return Message{}, ErrForbidden
 	}
 	now := time.Now().UTC()
@@ -153,16 +147,13 @@ func (s *Service) EditMessage(actor User, messageID, body string) (Message, erro
 	return *m, nil
 }
 func (s *Service) DeleteMessage(actor User, messageID string) (Message, error) {
-	if !actor.Permissions[DeleteOwnMessages] {
-		return Message{}, ErrForbidden
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m := s.messages[messageID]
 	if m == nil {
 		return Message{}, ErrNotFound
 	}
-	if m.AuthorID != actor.ID || m.DeletedAt != nil {
+	if m.AuthorID != actor.ID || m.DeletedAt != nil || !s.conversations[m.ConversationID].Members[actor.ID] {
 		return Message{}, ErrForbidden
 	}
 	now := time.Now().UTC()

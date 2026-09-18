@@ -15,7 +15,7 @@ var ErrShareConflict = errors.New("share request already used with different con
 // CreateSharedMessage commits the message and retry acknowledgement atomically.
 // The caller supplies trusted attachment metadata obtained by streaming uploads.
 func (p *Postgres) CreateSharedMessage(ctx context.Context, actor chat.User, requestID, hash, cid, body string, attachments []chat.Attachment) (chat.Message, bool, error) {
-	if !actor.Permissions[chat.SendMessages] {
+	if actor.ID == "" {
 		return chat.Message{}, false, chat.ErrForbidden
 	}
 	body = strings.TrimSpace(body)

@@ -163,6 +163,56 @@ func TestFamilyNeeds(t *testing.T) {
 	if _, err = p.Pool.Exec(ctx, `UPDATE shopping_items SET owner_user_id=NULL WHERE id=$1`, personal.ID); err == nil {
 		t.Fatal("missing ownership accepted")
 	}
+	moving, err := p.SaveNeed(author, "", "", NeedInput{Title: needPtr("Move me"), PlannedDate: needPtr("2026-10-02"), Completed: needPtr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Pool.Exec(ctx, `DELETE FROM shopping_items WHERE id=$1`, moving.ID)
+	if err = p.CommentNeed(author, "", moving.ID, "Keep history"); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion := moving.Version
+	if _, err = p.SaveNeed(author, "", moving.ID, NeedInput{TargetFamilyID: needPtr(family)}); !errors.Is(err, chat.ErrInvalid) {
+		t.Fatal("move needs version", err)
+	}
+	if _, err = p.SaveNeed(author, "", moving.ID, NeedInput{TargetFamilyID: needPtr("test_need_outside"), Version: &moving.Version}); !errors.Is(err, chat.ErrForbidden) {
+		t.Fatal("foreign target", err)
+	}
+	moving, err = p.SaveNeed(author, "", moving.ID, NeedInput{TargetFamilyID: needPtr(family), Version: &moving.Version})
+	if err != nil || moving.FamilyID != family || moving.OwnerUserID != nil || moving.CompletedAt == nil || moving.PlannedDate == nil || moving.CommentCount != 1 {
+		t.Fatal("move to family preserves fields", err)
+	}
+	if _, err = p.NeedDetails(member, family, moving.ID); err != nil {
+		t.Fatal("family cannot read moved item", err)
+	}
+	if _, err = p.SaveNeed(author, "", moving.ID, NeedInput{TargetFamilyID: needPtr(family), Version: &oldVersion}); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatal("repeat old scope", err)
+	}
+	for _, other := range []chat.User{member, admin} {
+		if _, err = p.SaveNeed(other, family, moving.ID, NeedInput{TargetFamilyID: needPtr(""), Version: &moving.Version}); !errors.Is(err, chat.ErrForbidden) {
+			t.Fatal("non-author took item", err)
+		}
+	}
+	moving, err = p.SaveNeed(author, family, moving.ID, NeedInput{AssigneeID: &member.ID, Version: &moving.Version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.SaveNeed(author, family, moving.ID, NeedInput{TargetFamilyID: needPtr(""), Version: &oldVersion}); !errors.Is(err, ErrNeedConflict) {
+		t.Fatal("stale transfer", err)
+	}
+	moving, err = p.SaveNeed(author, family, moving.ID, NeedInput{TargetFamilyID: needPtr(""), Version: &moving.Version})
+	if err != nil || moving.OwnerUserID == nil || *moving.OwnerUserID != author.ID || moving.FamilyID != "" || moving.AssigneeID != nil || moving.CompletedAt == nil || moving.CommentCount != 1 {
+		t.Fatal("move private", err)
+	}
+	if _, err = p.NeedDetails(member, family, moving.ID); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatal("old family access", err)
+	}
+	if err = p.CommentNeed(member, family, moving.ID, "forbidden"); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatal("old family comment", err)
+	}
+	if _, err = p.NeedDetails(author, "", moving.ID); err != nil {
+		t.Fatal("private details after transfer", err)
+	}
 	if _, err = p.Pool.Exec(ctx, `DELETE FROM family_members WHERE user_id=$1`, author.ID); err != nil {
 		t.Fatal(err)
 	}

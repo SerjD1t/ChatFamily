@@ -778,7 +778,7 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil {
-		go a.notifyReaction(conversationID, a.user(id(r)).Name, in.Emoji)
+		go a.notifyReaction(conversationID, id(r), a.user(id(r)).Name, in.Emoji)
 		a.hub.publish(realtimeEvent{Type: "reaction.updated", ConversationID: conversationID, MessageID: r.PathValue("id")})
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -33,7 +33,9 @@ for(const locale of ['ru','en'])test(`separate application users panel (${locale
   assert.equal($('#applicationUsersDialog').open,true);assert.equal(userReads,1);
   assert.equal($('#applicationUsersTitle').textContent,locale==='en'?'Users':'Пользователи');
   const query=$('[data-directory="users"] input');query.value='Synthetic';query.dispatchEvent(new dom.window.Event('input'));assert.equal($('#users').children.length,1);
-  $('[data-edit-permissions="u2"]').click();$('#savePermissions').click();await wait();
+  $('[data-edit-permissions="u2"]').click();
+  assert.deepEqual([...$('#permissionList').querySelectorAll('input')].map(input=>input.value),['manage_application']);
+  $('#savePermissions').click();await wait();
   assert.equal(writes,1);assert.equal(userReads,2);assert.equal(settingsReads,1);
   assert.equal($('[data-directory="users"] input').value,'Synthetic');assert.equal($('#minPasswordLength').value,'18');
   assert.ok($('[data-user-lifecycle="u2"][data-action="delete"]'));

@@ -459,6 +459,20 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 .needSummary { margin: 1rem 0; }
 .needSummary h2 { margin: 0 0 .6rem; font-size: 1.3rem; overflow-wrap: anywhere; }
 .needSummaryMeta { display: flex; flex-wrap: wrap; gap: .4rem .9rem; color: var(--text-muted); font-size: .85rem; }
+.needSummaryMeta .needQuickValue { font:inherit; color:inherit; padding:.2rem .4rem; min-width:0; text-decoration:underline dotted; text-underline-offset:.2em; }
+.needQuickDialog { position:fixed; inset:auto; margin:0; width:19rem; max-width:calc(100vw - 1rem); max-height: min(32rem,85dvh); box-sizing:border-box; padding:.8rem; overflow:auto; background:var(--surface); color:var(--text); }
+.needQuickDialog::backdrop { background:rgb(0 0 0 / .12); }
+.needQuickChoices { display:grid; gap:.25rem; }
+.needQuickChoices button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.needQuickChoices button[aria-pressed=true] { background:var(--surface-selected); color:var(--accent); }
+.needQuickDialog form { margin-top:.6rem; }
+.needQuickDialog input[type=date] { min-width:0; width:100%; box-sizing:border-box; }
+.needQuickDialog [data-quick-error]:empty { display:none; }
+@media (max-width:700px) {
+ .needQuickDialog { inset:auto .5rem max(.5rem,env(safe-area-inset-bottom)); width:calc(100% - 1rem); max-width:none; max-height:75dvh; }
+ .needQuickValue, .needQuickChoices button { min-height:44px; }
+ .needQuickDialog input { font-size:max(16px,1rem); }
+}
 .needDescription { white-space: pre-wrap; overflow-wrap: anywhere; margin: .7rem 0; max-height: 8rem; overflow-y: auto; }
 .needSummary > button { margin-top: .6rem; }
 .needDialog [data-error]:empty { display: none; }

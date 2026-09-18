@@ -7,7 +7,11 @@ export function filterDirectory(users,query='',status='',role='',admin=false){
   return terms.every(t=>haystack.includes(t))&&(!status||(status==='disabled')===!!u.disabled)&&(!role||(role==='admin')===!!u.Permissions?.manage_application);
  });
 }
-export function mountDirectory({list,users,render,admin=false,locale=()=> 'ru'}){
+export function personalChatOrder(users,chats,locale='ru'){
+ const times=new Map(chats.map(c=>[c.peerUserId,Date.parse(c.lastMessageAt)||0]));
+ return [...users].sort((a,b)=>(times.get(b.ID)||0)-(times.get(a.ID)||0)||(a.Name||'').localeCompare(b.Name||'',locale)||a.ID.localeCompare(b.ID));
+}
+export function mountDirectory({list,users,render,admin=false,locale=()=> 'ru',order=items=>items}){
  const id=list.id||'personalDirectory';list.id=id;
  list.parentElement.querySelector(`[data-directory="${id}"]`)?.remove();
  const tools=document.createElement('div');tools.className='directoryTools';tools.dataset.directory=id;
@@ -17,12 +21,14 @@ export function mountDirectory({list,users,render,admin=false,locale=()=> 'ru'})
  const query=tools.querySelector('input'),status=tools.querySelector('[data-status]'),role=tools.querySelector('[data-role]');
  query.value=saved.query||'';if(status)status.value=saved.status||'';if(role)role.value=saved.role||'';
  function update(){
-  const filtered=filterDirectory(users,query.value,status?.value,role?.value,admin),pages=Math.max(1,Math.ceil(filtered.length/25));page=Math.min(page,pages-1);
+  const filtered=order(filterDirectory(users,query.value,status?.value,role?.value,admin)),pages=Math.max(1,Math.ceil(filtered.length/25));page=Math.min(page,pages-1);
   directoryState.set(id,{page,query:query.value,status:status?.value,role:role?.value});
-  list.innerHTML=filtered.slice(page*25,page*25+25).map(render).join('')||`<${list.tagName==='UL'?'li':'p'} class="muted">${safe(t('Никого не найдено','No users found'))}</${list.tagName==='UL'?'li':'p'}>`;
+  const html=filtered.slice(page*25,page*25+25).map(render).join('')||`<${list.tagName==='UL'?'li':'p'} class="muted">${safe(t('Никого не найдено','No users found'))}</${list.tagName==='UL'?'li':'p'}>`;
+  if(list.innerHTML!==html)list.innerHTML=html;
   tools.querySelector('[role="status"]').textContent=`${t('Найдено','Found')}: ${filtered.length} · ${page+1}/${pages}`;
   tools.querySelector('[data-prev]').disabled=page===0;tools.querySelector('[data-next]').disabled=page>=pages-1;
  }
  query.oninput=()=>{page=0;update();};if(status)status.onchange=()=>{page=0;update();};if(role)role.onchange=()=>{page=0;update();};
  tools.querySelector('[data-prev]').onclick=()=>{page--;update();};tools.querySelector('[data-next]').onclick=()=>{page++;update();};update();
+ return ()=>{if(list.isConnected)update();};
 }

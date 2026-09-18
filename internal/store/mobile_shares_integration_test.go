@@ -88,7 +88,13 @@ func TestMobileShareIdempotency(t *testing.T) {
 		t.Fatal("retry resurrected deleted message")
 	}
 	actor.Permissions[chat.SendMessages] = false
+	if _, _, err = p.CreateSharedMessage(ctx, actor, "basic", "hash", conversation.ID, "hello", nil); err != nil {
+		t.Fatal("basic sharing denied", err)
+	}
+	if _, err = p.Pool.Exec(ctx, "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", conversation.ID, actor.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err = p.CreateSharedMessage(ctx, actor, "denied", "hash", conversation.ID, "hello", nil); !errors.Is(err, chat.ErrForbidden) {
-		t.Fatal("permission bypass")
+		t.Fatal("membership bypass")
 	}
 }
