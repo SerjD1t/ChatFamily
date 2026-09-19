@@ -4,6 +4,7 @@ import { initMediaViewer } from "./media-viewer.js";
 import { initMessageActions, messageActionsMarkup } from "./message-actions.js";
 import { initGroups, classifyGroups, managesGroup } from './groups.js';
 import { initInterfamily } from './interfamily.js';
+import { interfamilyHeading, bindInterfamilyMenu } from './interfamily-menu.js';
 import { initSendSettings, shouldSend } from "./send-settings.js";
 const attachmentDrafts = new Map();
 let attachmentConversation = null;
@@ -209,6 +210,7 @@ function avatarMarkup(title, icon = "") {
 function renderConversations() {
   const label=(ru,en)=>userPreferences.locale==='en'?en:ru;
   const buckets=classifyGroups(conversations,activeFamilyID),family=conversations.find(c=>c.kind==='family'&&c.familyId===activeFamilyID);
+  const interfamilyChats=conversations.filter(c=>c.kind==='interfamily'&&c.familyIds?.includes(activeFamilyID));
   const filter=$("#conversationFilter")?.value.trim().toLocaleLowerCase()||"";
   const button=(c,fallback='')=>`<button class="conversation ${active===c.id?'selected':''}" data-id="${safe(c.id)}">
     ${avatarMarkup(c.title,c.icon||fallback)}<span class="conversationContent"><span class="conversationTitle">${favoriteIDs.has(c.id)?'<span aria-hidden="true">★ </span>':''}${safe(c.title)}</span>
@@ -219,13 +221,13 @@ function renderConversations() {
   const html=button({id:personalID,title:t('personal'),unreadCount:directChats().reduce((n,c)=>n+(c.unreadCount||0),0)},'👤')+
     button({id:shoppingID,title:t('shopping'),lastMessage:`${activeFamilyID?label('Личные и семья','Personal + family'):label('Личные','Personal')} · ${label('Сегодня','Today')}: ${shoppingCounter.plannedToday} · ${label('Просрочено','Overdue')}: ${shoppingCounter.overdue||0}`},'🛒')+
     `<p class="navSectionTitle">${label('Семья','Family')}</p>`+(family?button({...family,title:activeFamily(families,activeFamilyID)?.title||family.title},'🏠'):'')+list(buckets.family)+
-    `<p class="navSectionTitle">${label('Семейные чаты','Family chats')}</p>`+
-    list(conversations.filter(c=>c.kind==='interfamily'&&c.familyIds?.includes(activeFamilyID)))+
-    (canManageFamily(families,activeFamilyID)?`<button type="button" class="secondary" data-interfamily>${label('Управление семейными чатами','Manage family chats')}</button>`:'')+
+    interfamilyHeading(userPreferences.locale,canManageFamily(families,activeFamilyID))+
+    (interfamilyChats.length?list(interfamilyChats):`<p class="interfamilyEmpty" data-no-i18n>${label('Пока нет семейных чатов','No family chats yet')}</p>`)+
     `<p class="navSectionTitle">${label('Группы','Groups')}</p>`+list(buckets.other);
   syncMarkup($("#conversations"),html);
-  $("#conversations").onclick=e=>{if(e.target.closest('[data-interfamily]')){interfamilyUI.open();return;}const button=e.target.closest('[data-id]');if(button)openConversation(button.dataset.id);};
+  $("#conversations").onclick=e=>{const button=e.target.closest('[data-id]');if(button)openConversation(button.dataset.id);};
 }
+bindInterfamilyMenu($("#conversations"),action=>interfamilyUI.open(action));
 $("#conversationFilter").oninput = renderConversations;
 async function loadConversations(navigateIfEmpty = true) {
   const familyID = activeFamilyID;

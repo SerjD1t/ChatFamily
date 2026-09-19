@@ -10,7 +10,7 @@ export function initInterfamily({request,family,locale,refresh,confirm}){
  function members(users,selected=[]){return `<fieldset><legend>${t('Представители вашей семьи','Your family representatives')}</legend><div class="interfamilyCandidates">${users.map(u=>`<label class="groupInviteToggle"><input type="checkbox" name="member" value="${safe(u.ID)}" ${selected.includes(u.ID)?'checked':''}>${safe(u.Name)}</label>`).join('')}</div></fieldset><p class="muted">${warning()}</p>`}
  const selected=form=>[...form.querySelectorAll('[name=member]:checked')].map(i=>i.value);
  function showCode(token){if(!token)return;const d=dialog(t('Код подключения семьи','Family connection code'));d.querySelector('[data-content]').innerHTML=`<p>${t('Передайте этот одноразовый код администратору другой семьи. Срок — 7 дней. После его запроса потребуется ваше подтверждение.','Share this single-use code with the other family administrator. It expires in 7 days. You must confirm their request.')}</p><input readonly aria-label="${t('Код','Code')}" value="${safe(token)}"><p>${t('Код не сохраняется в браузере. При потере можно выпустить новый.','The browser does not retain this code. You can generate a replacement.')}</p>`;d.querySelector('input').onclick=e=>e.target.select()}
- async function open(){
+ async function open(initialAction='manage'){
   const f=family();if(!f||!['owner','admin'].includes(f.role))return;
   const d=dialog(`${t('Семейные чаты','Family chats')} · ${f.title}`),host=d.querySelector('[data-content]'),error=d.querySelector('.error');let users=[],busy=false;
   async function load(){try{const [chats,candidates]=await Promise.all([request(`/interfamily?familyId=${encodeURIComponent(f.id)}`),request(`/interfamily?familyId=${encodeURIComponent(f.id)}&candidates=1`)]);if(!d.isConnected)return;users=candidates;host.innerHTML=`<div class="actions"><button type="button" data-create>${t('Создать чат','Create chat')}</button><button type="button" data-join>${t('Подключиться по коду','Connect using code')}</button></div><p class="muted">${t('Каждая семья управляет только своими представителями. Переписка доступна после подтверждения обеих сторон.','Each family manages only its representatives. Messaging requires approval from both sides.')}</p><ul class="groupMemberList">${chats.map(c=>`<li><span>${safe(c.icon||'👪')} ${safe(c.title)}<small>${safe(c.originTitle)}${c.targetTitle?' ↔ '+safe(c.targetTitle):''} · ${safe(({pending:t('Ожидает подключения','Awaiting connection'),requested:t('Ожидает подтверждения','Awaiting approval'),active:t('Активен','Active')})[c.state])}</small></span><button type="button" data-edit="${safe(c.id)}">${t('Настроить','Manage')}</button></li>`).join('')}</ul>`;host.querySelector('[data-create]').onclick=()=>create(false);host.querySelector('[data-join]').onclick=()=>create(true);host.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>edit(chats.find(c=>c.id===b.dataset.edit)))}catch(e){error.textContent=e.message;host.innerHTML=`<button type="button" data-retry>${t('Повторить','Retry')}</button>`;host.querySelector('button').onclick=load}}
@@ -26,6 +26,10 @@ export function initInterfamily({request,family,locale,refresh,confirm}){
   }
   const reload=document.createElement('button');reload.type='button';reload.textContent=t('Обновить список','Refresh list');reload.onclick=load;d.querySelector('header').insertBefore(reload,d.querySelector('[data-close]'));
   await load();
+  if(d.isConnected && host.querySelector('[data-create]')) {
+   if(initialAction==='create')create(false);
+   else if(initialAction==='join')create(true);
+  }
  }
  return {open};
 }

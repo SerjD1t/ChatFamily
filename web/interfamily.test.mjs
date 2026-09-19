@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {initInterfamily} from './interfamily.js';
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
+test('interfamily direct menu actions and role guard',{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<body></body>');globalThis.document=dom.window.document;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true};
+ let role='member',calls=0;
+ const ui=initInterfamily({request:async()=>{calls++;return[]},family:()=>({id:'f',title:'Synthetic',role}),locale:()=> 'ru',refresh:async()=>{},confirm:async()=>true});
+ try{
+  await ui.open('create');assert.equal(calls,0);assert.equal(document.querySelector('dialog'),null);
+  role='owner';await ui.open('create');assert.ok(document.querySelector('input[name=title]'));document.body.innerHTML='';
+  role='admin';await ui.open('join');assert.ok(document.querySelector('input[name=token]'));assert.equal(document.querySelector('input[name=title]'),null);
+ }finally{dom.window.close()}
+});
 for(const locale of ['ru','en'])test(`interfamily workflow ${locale}: explicit representatives, approval, retries and retained chat`,{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<body><textarea id="draft">Keep this</textarea></body>',{url:'https://example.test'});globalThis.document=dom.window.document;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true};dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'))};
