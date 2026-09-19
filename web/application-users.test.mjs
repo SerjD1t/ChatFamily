@@ -27,7 +27,7 @@ for(const locale of ['ru','en'])test(`separate application users panel (${locale
   $('#administration').click();await wait();
   assert.equal($('#applicationAdminDialog').open,true);assert.equal(userReads,0);
   assert.equal($('#applicationAdminDialog #users'),null);
-  assert.equal($('#applicationAdminSections').children.length,4);
+  assert.equal($('#applicationAdminSections').children.length,5);
   $('#minPasswordLength').value='18';
   $('#openApplicationUsers').click();await wait();
   assert.equal($('#applicationUsersDialog').open,true);assert.equal(userReads,1);

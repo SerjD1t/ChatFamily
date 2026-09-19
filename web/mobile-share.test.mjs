@@ -36,6 +36,8 @@ test('Android shares require explicit confirmation and preserve the chat DOM', {
   document.querySelector('.shareForm').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
   await new Promise(r=>setTimeout(r,0));
   assert.equal(submissions.length,1); assert.equal(submissions[0].conversationId,'c1'); assert.equal(submissions[0].userId,'u1');
+  assert.equal(document.querySelector('.mobileShareDialog').open,false,'recipient dialog closes after queue acceptance');
+  await tick();assert.equal(document.querySelector('.mobileShareDialog').open,false,'polling must not reopen queued share');
   assert.equal(document.querySelector('#message'),message); assert.equal(document.querySelector('#draft'),draft); assert.equal(draft.value,'Unsent draft');
   jobs=[{id:'other',userId:'another',state:'failed',body:'Private',files:[]}]; await tick();
   assert.equal(document.querySelector('.shareQueue').textContent.includes('Private'),false);

@@ -154,27 +154,14 @@ func (p *Postgres) Conversations(userID string) []chat.Conversation {
 			out = append(out, c)
 		}
 	}
+	rows.Close()
+	if err := p.enrichConversations(userID, out); err != nil {
+		return []chat.Conversation{}
+	}
 	return out
 }
 func (p *Postgres) CreateGroup(a chat.User, title string, ids []string) (chat.Conversation, error) {
-	if !a.Permissions[chat.CreateGroups] {
-		return chat.Conversation{}, chat.ErrForbidden
-	}
-	title = strings.TrimSpace(title)
-	if title == "" || len([]rune(title)) > 120 {
-		return chat.Conversation{}, chat.ErrInvalid
-	}
-	id := id()
-	ctx := context.Background()
-	if _, e := p.Pool.Exec(ctx, `INSERT INTO conversations(id,kind,title,created_by) VALUES($1,'group',$2,$3)`, id, title, a.ID); e != nil {
-		return chat.Conversation{}, e
-	}
-	for _, member := range unique(append(ids, a.ID)) {
-		if _, e := p.Pool.Exec(ctx, `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,id FROM users WHERE id=$2 ON CONFLICT DO NOTHING`, id, member); e != nil {
-			return chat.Conversation{}, e
-		}
-	}
-	return chat.Conversation{ID: id, Kind: chat.Group, Title: title, Members: p.members(id)}, nil
+	return p.createIndependentGroup(a, title, ids)
 }
 func (p *Postgres) CreateMessage(a chat.User, cid, body string, attachments []chat.Attachment) (chat.Message, error) {
 	body = strings.TrimSpace(body)
@@ -214,14 +201,14 @@ func (p *Postgres) Messages(a chat.User, cid string) ([]chat.Message, error) {
 	if !p.member(cid, a.ID) {
 		return nil, chat.ErrForbidden
 	}
-	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
+	rows, e := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at,EXISTS(SELECT 1 FROM message_forwards f WHERE f.message_id=m.id) FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 ORDER BY m.created_at,m.id`, cid)
 	if e != nil {
 		return nil, e
 	}
 	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
-		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); e != nil {
+		if e = rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt, &m.Forwarded); e != nil {
 			rows.Close()
 			return nil, e
 		}
@@ -303,38 +290,16 @@ func (p *Postgres) DirectConversation(a chat.User, other string) (chat.Conversat
 	return chat.Conversation{ID: conversationID, Kind: chat.Direct, PeerUserID: other}, nil
 }
 func (p *Postgres) AddMember(a chat.User, cid, uid string) error {
-	familyID, ok := p.FamilyForConversation(cid)
-	if !ok || !p.FamilyAdmin(a.ID, familyID) {
-		return chat.ErrForbidden
-	}
-	result, e := p.Pool.Exec(context.Background(), `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,user_id FROM family_members WHERE family_id=$2 AND user_id=$3 ON CONFLICT DO NOTHING`, cid, familyID, uid)
-	if e != nil {
-		return e
-	}
-	if result.RowsAffected() == 0 {
-		if _, ok := p.User(uid); !ok {
-			return chat.ErrNotFound
-		}
-	}
-	return nil
+	return p.ChangeGroup(a, cid, "add", GroupChange{UserID: uid})
 }
-func (p *Postgres) DeleteGroup(actor chat.User, conversationID string) error {
-	familyID, ok := p.FamilyForConversation(conversationID)
-	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
-		return chat.ErrForbidden
-	}
-	var kind string
-	if err := p.Pool.QueryRow(context.Background(), `SELECT kind FROM conversations WHERE id=$1 AND archived_at IS NULL`, conversationID).Scan(&kind); err != nil {
-		return chat.ErrNotFound
-	}
-	if kind != "group" {
-		return chat.ErrForbidden
-	}
-	_, err := p.Pool.Exec(context.Background(), `UPDATE conversations SET archived_at=now() WHERE id=$1`, conversationID)
-	return err
+func (p *Postgres) DeleteGroup(a chat.User, cid string) error {
+	return p.ChangeGroup(a, cid, "archive", GroupChange{})
 }
 
 func (p *Postgres) RenameConversation(actor chat.User, conversationID, title string) error {
+	if p.isGroup(conversationID) {
+		return p.ChangeGroup(actor, conversationID, "settings", GroupChange{Title: &title})
+	}
 	title = strings.TrimSpace(title)
 	if title == "" || len([]rune(title)) > 120 {
 		return chat.ErrInvalid
@@ -381,6 +346,9 @@ func (p *Postgres) SearchMessages(actor chat.User, conversationID, query string)
 }
 
 func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
+	if p.isGroup(cid) {
+		return p.GroupMembers(actor, cid)
+	}
 	if !p.member(cid, actor.ID) {
 		return nil, chat.ErrForbidden
 	}
@@ -412,30 +380,11 @@ func (p *Postgres) Members(actor chat.User, cid string) ([]chat.User, error) {
 	return users, rows.Err()
 }
 
-func (p *Postgres) RemoveMember(actor chat.User, cid, uid string) error {
-	familyID, ok := p.FamilyForConversation(cid)
-	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
-		return chat.ErrForbidden
-	}
-	if uid == actor.ID {
-		return chat.ErrInvalid
-	}
-	result, err := p.Pool.Exec(context.Background(), `DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2`, cid, uid)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return chat.ErrNotFound
-	}
-	return nil
+func (p *Postgres) RemoveMember(a chat.User, cid, uid string) error {
+	return p.ChangeGroup(a, cid, "remove", GroupChange{UserID: uid})
 }
-
-func (p *Postgres) MemberCandidates(actor chat.User, cid string) ([]chat.User, error) {
-	familyID, ok := p.FamilyForConversation(cid)
-	if !ok || !p.FamilyAdmin(actor.ID, familyID) {
-		return nil, chat.ErrForbidden
-	}
-	return p.FamilyUsers(familyID)
+func (p *Postgres) MemberCandidates(a chat.User, cid string) ([]chat.User, error) {
+	return p.groupCandidates(a, cid)
 }
 
 func (p *Postgres) groupMember(cid, uid string) bool {
@@ -462,7 +411,7 @@ func (p *Postgres) members(cid string) map[string]bool {
 }
 func (p *Postgres) member(cid, uid string) bool {
 	var ok bool
-	p.Pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=$1 AND user_id=$2)`, cid, uid).Scan(&ok)
+	p.Pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM conversation_members cm JOIN conversations c ON c.id=cm.conversation_id JOIN users u ON u.id=cm.user_id WHERE c.id=$1 AND u.id=$2 AND u.disabled_at IS NULL AND c.archived_at IS NULL)`, cid, uid).Scan(&ok)
 	return ok
 }
 func (p *Postgres) attachments(mid string) []chat.Attachment {
@@ -585,7 +534,7 @@ func (p *Postgres) MessageReactions(actor chat.User, messageID string) ([]chat.R
 func (p *Postgres) AttachmentObject(userID, attachmentID string) (string, chat.Attachment, error) {
 	var key string
 	var a chat.Attachment
-	err := p.Pool.QueryRow(context.Background(), `SELECT a.object_key,a.id,a.filename,a.content_type,a.bytes FROM attachments a JOIN messages m ON m.id=a.message_id JOIN conversation_members cm ON cm.conversation_id=m.conversation_id WHERE a.id=$1 AND a.deleted_at IS NULL AND cm.user_id=$2`, attachmentID, userID).Scan(&key, &a.ID, &a.Filename, &a.ContentType, &a.Bytes)
+	err := p.Pool.QueryRow(context.Background(), `SELECT a.object_key,a.id,a.filename,a.content_type,a.bytes FROM attachments a JOIN messages m ON m.id=a.message_id JOIN conversations c ON c.id=m.conversation_id JOIN conversation_members cm ON cm.conversation_id=m.conversation_id WHERE a.id=$1 AND a.deleted_at IS NULL AND cm.user_id=$2 AND c.archived_at IS NULL`, attachmentID, userID).Scan(&key, &a.ID, &a.Filename, &a.ContentType, &a.Bytes)
 	if err != nil {
 		return "", chat.Attachment{}, chat.ErrNotFound
 	}
@@ -629,7 +578,7 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
+	rows, err := p.Pool.Query(context.Background(), `SELECT m.id,m.conversation_id,m.author_id,chat_author_label(u.id,m.conversation_id),COALESCE(u.avatar_key,''),m.body,m.created_at,m.edited_at,m.deleted_at,EXISTS(SELECT 1 FROM message_forwards f WHERE f.message_id=m.id) FROM messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=$1 AND ($2='' OR (m.created_at,m.id)<(SELECT created_at,id FROM messages WHERE id=$2 AND conversation_id=$1)) ORDER BY m.created_at DESC,m.id DESC LIMIT $3`, cid, before, limit+1)
 	if err != nil {
 		return chat.MessagePage{}, err
 	}
@@ -637,7 +586,7 @@ func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (cha
 	out := []chat.Message{}
 	for rows.Next() {
 		var m chat.Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Body, &m.CreatedAt, &m.EditedAt, &m.DeletedAt, &m.Forwarded); err != nil {
 			return chat.MessagePage{}, err
 		}
 		out = append(out, m)

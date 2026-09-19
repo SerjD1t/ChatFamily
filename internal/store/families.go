@@ -81,34 +81,9 @@ func (p *Postgres) CreateFamily(actor chat.User, title, parentFamilyID string) (
 	return f, nil
 }
 
+// Compatibility for older Go callers; family no longer owns the group.
 func (p *Postgres) CreateGroupInFamily(actor chat.User, familyID, title string, ids []string) (chat.Conversation, error) {
-	if !p.FamilyAdmin(actor.ID, familyID) {
-		return chat.Conversation{}, chat.ErrForbidden
-	}
-	title = strings.TrimSpace(title)
-	if title == "" || len([]rune(title)) > 120 {
-		return chat.Conversation{}, chat.ErrInvalid
-	}
-	c := chat.Conversation{ID: id(), Kind: chat.Group, Title: title, FamilyID: familyID}
-	ctx := context.Background()
-	tx, err := p.Pool.Begin(ctx)
-	if err != nil {
-		return c, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO conversations(id,kind,title,family_id,created_by) VALUES($1,'group',$2,$3,$4)`, c.ID, c.Title, familyID, actor.ID); err != nil {
-		return c, err
-	}
-	for _, uid := range unique(append(ids, actor.ID)) {
-		if _, err = tx.Exec(ctx, `INSERT INTO conversation_members(conversation_id,user_id) SELECT $1,fm.user_id FROM family_members fm WHERE fm.family_id=$2 AND fm.user_id=$3 ON CONFLICT DO NOTHING`, c.ID, familyID, uid); err != nil {
-			return c, err
-		}
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return c, err
-	}
-	c.Members = p.members(c.ID)
-	return c, nil
+	return p.CreateGroup(actor, title, ids)
 }
 func (p *Postgres) FamilyUsers(familyID string) ([]chat.User, error) {
 	rows, err := p.Pool.Query(context.Background(), `SELECT u.id,u.email,u.display_name,u.permissions,COALESCE(u.avatar_key,''),fm.relationship,COALESCE((SELECT array_agg(category ORDER BY category) FROM family_member_categories c WHERE c.family_id=fm.family_id AND c.user_id=u.id),ARRAY[]::text[]) FROM users u JOIN family_members fm ON fm.user_id=u.id WHERE fm.family_id=$1 ORDER BY u.display_name,u.id`, familyID)

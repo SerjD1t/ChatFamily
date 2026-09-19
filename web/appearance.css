@@ -32,40 +32,54 @@ html[data-skin="classic"] .message .bubble { border-radius:var(--radius-md); }
 html[data-skin="classic"] .messageAuthor { color:var(--accent); }
 
 /* Text does not scale viewport/breakpoints or root rem-based layout dimensions. */
-html[data-text-size="small"] { --ui-font:.8125rem; }
-html[data-text-size="normal"] { --ui-font:1rem; }
-html[data-text-size="large"] { --ui-font:1.3125rem; }
+html[data-text-size="small"] { --ui-font:.75rem; }
+html[data-text-size="normal"] { --ui-font:.8125rem; }
+html[data-text-size="large"] { --ui-font:1rem; }
+html[data-text-size="legacy-large"] { --ui-font:1.3125rem; }
 html[data-text-size] body { font-size:var(--ui-font); }
-html[data-text-size]:not([data-text-size="normal"]) :is(.messageAuthor,.needMeta,.conversationPreview,.personalContactPreview,.chatHeading p) { font-size:.85em; }
-html[data-text-size]:not([data-text-size="normal"]) :is(.messageMeta,.conversationTime,.contactMeta,.dateDivider) { font-size:.78em; }
-html[data-text-size]:not([data-text-size="normal"]) :is(.needs label,.needDialog label,.needKind legend,.receiptDialog .muted) { font-size:.9em; }
-html[data-text-size]:not([data-text-size="normal"]) .messageReply span { font-size:.9em; }
-html[data-text-size]:not([data-text-size="normal"]) .messageReply strong { font-size:.85em; }
+html[data-text-size]:not([data-text-size="large"]) :is(.messageAuthor,.needMeta,.conversationPreview,.personalContactPreview,.chatHeading p) { font-size:.85em; }
+html[data-text-size]:not([data-text-size="large"]) :is(.messageMeta,.conversationTime,.contactMeta,.dateDivider) { font-size:.78em; }
+html[data-text-size]:not([data-text-size="large"]) :is(.needs label,.needDialog label,.needKind legend,.receiptDialog .muted) { font-size:.9em; }
+html[data-text-size]:not([data-text-size="large"]) .messageReply span { font-size:.9em; }
+html[data-text-size]:not([data-text-size="large"]) .messageReply strong { font-size:.85em; }
 
-html[data-density="compact"] { --density-space:.6; --control-height:1.8rem; --pad-y:.42rem; --row-y:.3rem; --bubble-y:.39rem; --head-height:2.7rem; --section-gap:.45rem; }
-html[data-density="spacious"] { --density-space:1.4; --control-height:3.85rem; --pad-y:.98rem; --row-y:.7rem; --bubble-y:.91rem; --head-height:6.3rem; --section-gap:1.05rem; }
-html:is([data-density="compact"],[data-density="spacious"]) button:not(.messageAuthor) { padding-block:calc(.45rem * var(--density-space)); }
-html:is([data-density="compact"],[data-density="spacious"]) .message { padding-block:calc(.16rem * var(--density-space)); }
-html:is([data-density="compact"],[data-density="spacious"]) .messageReply { padding-block:calc(.45rem * var(--density-space)); margin-block:calc(.4rem * var(--density-space)); }
-html:is([data-density="compact"],[data-density="spacious"]) button:not(.messageAuthor) { min-height:var(--control-height); }
-html:is([data-density="compact"],[data-density="spacious"]) :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { min-height:var(--control-height); height:auto; padding-block:var(--pad-y); }
-html:is([data-density="compact"],[data-density="spacious"]) :is(.needsAdd > button,.needKind span) { height:auto; min-height:var(--control-height); padding-block:var(--pad-y); }
-html:is([data-density="compact"],[data-density="spacious"]) :is(.conversation,.personalContact,.needOpen,.menuAction) { min-height:var(--control-height); padding-block:var(--row-y); }
-html:is([data-density="compact"],[data-density="spacious"]) .message .bubble { padding-block:var(--bubble-y); }
-html:is([data-density="compact"],[data-density="spacious"]) .chatHead { min-height:calc(var(--head-height) + env(safe-area-inset-top)); }
-html:is([data-density="compact"],[data-density="spacious"]) :is(label,.dateDivider) { margin-block:var(--section-gap); }
-html:is([data-density="compact"],[data-density="spacious"]) :is(.composer,.panelHeader,.panelFooter) { padding-block:var(--section-gap); }
-html:is([data-density="compact"],[data-density="spacious"]) .composer { padding-bottom:calc(var(--section-gap) + env(safe-area-inset-bottom)); }
-html[data-density="compact"] .message .bubble { min-width:0; }
-html[data-text-size="large"] :is(.needsAdd input,.needsFilters input,.needDialog input,.needDialog select,.needKind span) { height:auto; min-height:2.75rem; }
+html[data-density="compact"] { --density-space:.45; --control-height:1.6rem; --pad-y:.3rem; --row-y:.2rem; --bubble-y:.3rem; --head-height:2.4rem; --section-gap:.3rem; }
+html[data-density="normal"] { --density-space:.6; --control-height:1.8rem; --pad-y:.42rem; --row-y:.3rem; --bubble-y:.39rem; --head-height:2.7rem; --section-gap:.45rem; }
+html[data-density="legacy-spacious"] { --density-space:1.4; --control-height:3.85rem; --pad-y:.98rem; --row-y:.7rem; --bubble-y:.91rem; --head-height:6.3rem; --section-gap:1.05rem; }
+html[data-density]:not([data-density="spacious"]) button:not(.messageAuthor) { padding-block:calc(.45rem * var(--density-space)); }
+html[data-density]:not([data-density="spacious"]) .message { padding-block:calc(.16rem * var(--density-space)); }
+html[data-density]:not([data-density="spacious"]) .messageReply { padding-block:calc(.45rem * var(--density-space)); margin-block:calc(.4rem * var(--density-space)); }
+html[data-density]:not([data-density="spacious"]) button:not(.messageAuthor) { min-height:var(--control-height); }
+html[data-density]:not([data-density="spacious"]) :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { min-height:var(--control-height); height:auto; padding-block:var(--pad-y); }
+html[data-density]:not([data-density="spacious"]) :is(.needsAdd > button,.needKind span) { height:auto; min-height:var(--control-height); padding-block:var(--pad-y); }
+html[data-density]:not([data-density="spacious"]) :is(.conversation,.personalContact,.needOpen,.menuAction) { min-height:var(--control-height); padding-block:var(--row-y); }
+html[data-density]:not([data-density="spacious"]) .message .bubble { padding-block:var(--bubble-y); }
+html[data-density]:not([data-density="spacious"]) .chatHead { min-height:calc(var(--head-height) + env(safe-area-inset-top)); }
+html[data-density]:not([data-density="spacious"]) :is(label,.dateDivider) { margin-block:var(--section-gap); }
+html[data-density]:not([data-density="spacious"]) :is(.composer,.panelHeader,.panelFooter) { padding-block:var(--section-gap); }
+html[data-density]:not([data-density="spacious"]) .composer { padding-bottom:calc(var(--section-gap) + env(safe-area-inset-bottom)); }
+html:is([data-density="compact"],[data-density="normal"]) .message .bubble { min-width:0; }
+html[data-text-size="legacy-large"] :is(.needsAdd input,.needsFilters input,.needDialog input,.needDialog select,.needKind span) { height:auto; min-height:2.75rem; }
 .appearanceSample { padding:.7rem; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--incoming); }
 .appearanceSample button { margin-top:.4rem; }
+/* Auxiliary actions share the message toolbar's neutral outline treatment.
+   Keep text labels, destructive semantics, selection and keyboard focus. */
+html body :is(dialog button,.messageActions button):not(.danger):not(.dangerText) {
+ background:var(--surface);color:var(--text);border:1px solid var(--border);
+ border-radius:var(--radius-sm);box-shadow:none;
+}
+html body :is(dialog button,.messageActions button):not(.danger):not(.dangerText):hover:not(:disabled) { background:var(--surface-hover); }
+html body :is(dialog button,.messageActions button)[aria-pressed="true"]:not(.danger):not(.dangerText) { background:var(--surface-selected);color:var(--accent);border-color:var(--accent); }
+html body dialog button.iconButton { display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:max(2rem,var(--control-height,2.5rem));min-height:max(2rem,var(--control-height,2.5rem));aspect-ratio:1;padding:.3rem; }
+.mediaActions { display:flex;gap:4px;align-items:center;flex-shrink:0; }
+html body dialog button.iconButton svg { width:1.125rem;height:1.125rem;flex-shrink:0; }
 #interfaceSettingsForm .actions { display:flex; flex-wrap:wrap; gap:.4rem; }
 @media(max-width:767px),(pointer:coarse) {
- html:is([data-density="compact"],[data-density="spacious"]) :is(button:not(.messageAuthor),input:not([type="checkbox"]):not([type="radio"]),select,.needKind span,.needsStatuses span) { min-height:44px; }
+ html body dialog button.iconButton { min-width:44px;min-height:44px; }
+ html[data-density]:not([data-density="spacious"]) :is(button:not(.messageAuthor),input:not([type="checkbox"]):not([type="radio"]),select,.needKind span,.needsStatuses span) { min-height:44px; }
  /* Labels can be smaller than body text even in normal/default mode. Keep
     focused form controls readable without disabling the user's pinch zoom. */
  html:root :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size:max(1em,16px); }
- html:is([data-density="compact"],[data-density="spacious"]) .panelHeader { padding-top:calc(var(--section-gap) + env(safe-area-inset-top)); }
- html:is([data-density="compact"],[data-density="spacious"]) .panelFooter { padding-bottom:calc(var(--section-gap) + env(safe-area-inset-bottom)); }
+ html[data-density]:not([data-density="spacious"]) .panelHeader { padding-top:calc(var(--section-gap) + env(safe-area-inset-top)); }
+ html[data-density]:not([data-density="spacious"]) .panelFooter { padding-bottom:calc(var(--section-gap) + env(safe-area-inset-bottom)); }
 }

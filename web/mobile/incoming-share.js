@@ -110,7 +110,7 @@ export function initIncomingShares({ user, locale, request, onSent }) {
       let cid = recipient.key.slice(5);
       if (recipient.key.startsWith("user:")) cid = (await request(`/users/${encodeURIComponent(cid)}/direct-conversation`,{method:"POST"})).id;
       await plugin.submit({id:selected,userId:user.ID,conversationId:cid,body:caption.value.trim()});
-      selected = null; form.hidden = true; await refresh();
+      selected = null; form.hidden = true; dialog.close(); await refresh();
     } catch (e) { error.textContent = e.message; }
     finally { busy = false; q(".shareSubmit").disabled = !recipient; }
   };

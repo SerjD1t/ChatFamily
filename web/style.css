@@ -499,3 +499,36 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 }
 .automationToggle { display:flex; align-items:center; gap:.6rem; }
 .automationToggle input { width:1.15rem; height:1.15rem; flex:0 0 auto; }
+/* Attachment viewing is independent of the chat DOM and scroll position. */
+.mediaViewer{box-sizing:border-box;width:min(960px,96vw);max-width:96vw;max-height:92dvh;padding:12px;overflow:auto}
+.mediaViewer::backdrop{background:rgba(0,0,0,.75)}
+.mediaViewer header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.mediaViewer header strong{flex:1;min-width:0;overflow-wrap:anywhere}
+.mediaViewport{overflow:auto;max-height:72dvh;text-align:center}
+.mediaViewport img,.mediaViewport video{display:block;max-width:100%;max-height:70dvh;margin:auto;object-fit:contain}
+.mediaViewport.mediaZoom img{max-width:none;max-height:none;margin:0}
+.messageActions{display:inline-flex;gap:2px;margin-inline-start:auto}
+.messageActions .reaction{display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm)}
+.message .bubble{position:relative}
+.messageActionMenu{position:fixed;z-index:20;display:grid;min-width:150px;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow)}
+.messageActionMenu button{text-align:left;white-space:nowrap;background:transparent;color:var(--text);border:0}
+.messageActionMenu button:hover{background:var(--surface-hover)}
+.forwardLabel{color:var(--text-muted);font-size:.85em;margin-bottom:.3em}
+.groupSettingsDialog{width:min(36rem,94vw);max-width:94vw;max-height:88dvh;box-sizing:border-box;padding:1rem;overflow:auto}
+.groupSettingsDialog header{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.groupSettingsDialog h2{font-size:1.2em}
+.groupMemberList{padding:0;list-style:none;max-height:35dvh;overflow:auto}
+.groupMemberList li{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border)}
+.groupMemberList li>span{min-width:0;overflow-wrap:anywhere}
+.groupMemberList small{display:block;color:var(--text-muted)}
+.groupInviteToggle{display:flex;gap:.5rem;align-items:center}
+.groupInviteToggle input{width:auto}
+.interfamilyCandidates{max-height:30dvh;overflow:auto}
+.interfamilyCandidates label{padding:.3rem 0;overflow-wrap:anywhere}
+.forwardDialog{width:min(480px,94vw);max-width:94vw;max-height:85dvh;box-sizing:border-box;padding:12px}
+.forwardDialog header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.forwardDialog h2{font-size:1.15em}
+.forwardRecipients{display:grid;gap:4px;max-height:40dvh;overflow:auto;margin-block:8px}
+.forwardRecipients button{background:var(--surface-muted);color:var(--text);text-align:left;overflow-wrap:anywhere}
+.forwardRecipients button[aria-pressed=true]{background:var(--surface-selected);outline:2px solid var(--accent);outline-offset:-2px}
+@media(max-width:600px){.mediaViewer{width:96vw;padding:8px}.mediaViewer header strong{flex-basis:100%}}

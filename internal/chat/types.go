@@ -17,6 +17,8 @@ const (
 )
 
 type User struct {
+	GroupRole          string `json:"groupRole,omitempty"`
+	CanInvite          bool   `json:"canInvite"`
 	FirstName          string `json:"firstName,omitempty"`
 	LastName           string `json:"lastName,omitempty"`
 	Disabled           bool   `json:"disabled"`
@@ -54,8 +56,9 @@ type FamilyInfo struct {
 }
 
 type UserPreferences struct {
-	Locale      string `json:"locale"`
-	ColorScheme string `json:"colorScheme"`
+	SendShortcut string `json:"sendShortcut"`
+	Locale       string `json:"locale"`
+	ColorScheme  string `json:"colorScheme"`
 }
 
 type ShoppingItem struct {
@@ -84,15 +87,20 @@ const (
 )
 
 type Conversation struct {
-	ID            string           `json:"id"`
-	Kind          ConversationKind `json:"kind"`
-	Title         string           `json:"title"`
-	PeerUserID    string           `json:"peerUserId,omitempty"`
-	UnreadCount   int64            `json:"unreadCount"`
-	FamilyID      string           `json:"familyId,omitempty"`
-	LastMessage   string           `json:"lastMessage,omitempty"`
-	LastMessageAt *time.Time       `json:"lastMessageAt,omitempty"`
-	Members       map[string]bool  `json:"-"`
+	Icon             string           `json:"icon,omitempty"`
+	GroupRole        string           `json:"groupRole,omitempty"`
+	CanInvite        bool             `json:"canInvite"`
+	FamilyIDs        []string         `json:"familyIds,omitempty"`
+	OwnerUnavailable bool             `json:"ownerUnavailable,omitempty"`
+	ID               string           `json:"id"`
+	Kind             ConversationKind `json:"kind"`
+	Title            string           `json:"title"`
+	PeerUserID       string           `json:"peerUserId,omitempty"`
+	UnreadCount      int64            `json:"unreadCount"`
+	FamilyID         string           `json:"familyId,omitempty"`
+	LastMessage      string           `json:"lastMessage,omitempty"`
+	LastMessageAt    *time.Time       `json:"lastMessageAt,omitempty"`
+	Members          map[string]bool  `json:"-"`
 }
 type Attachment struct {
 	ID          string `json:"id"`
@@ -106,6 +114,7 @@ type Reaction struct {
 	Reacted bool   `json:"reacted"`
 }
 type Message struct {
+	Forwarded       bool         `json:"forwarded,omitempty"`
 	ID              string       `json:"id"`
 	ConversationID  string       `json:"conversationId"`
 	AuthorID        string       `json:"authorId"`

@@ -10,8 +10,8 @@ import (
 )
 
 func (p *Postgres) UserPreferences(userID string) (chat.UserPreferences, error) {
-	prefs := chat.UserPreferences{Locale: "ru", ColorScheme: "system"}
-	err := p.Pool.QueryRow(context.Background(), `SELECT locale,color_scheme FROM user_preferences WHERE user_id=$1`, userID).Scan(&prefs.Locale, &prefs.ColorScheme)
+	prefs := chat.UserPreferences{Locale: "ru", ColorScheme: "system", SendShortcut: "ctrl_enter"}
+	err := p.Pool.QueryRow(context.Background(), `SELECT locale,color_scheme,send_shortcut FROM user_preferences WHERE user_id=$1`, userID).Scan(&prefs.Locale, &prefs.ColorScheme, &prefs.SendShortcut)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return chat.UserPreferences{}, err
 	}
@@ -25,7 +25,11 @@ func (p *Postgres) SetUserPreferences(userID string, prefs chat.UserPreferences)
 	if prefs.ColorScheme != "system" && prefs.ColorScheme != "light" && prefs.ColorScheme != "dark" && prefs.ColorScheme != "contrast" {
 		return chat.UserPreferences{}, chat.ErrInvalid
 	}
-	_, err := p.Pool.Exec(context.Background(), `INSERT INTO user_preferences(user_id,locale,color_scheme,updated_at) VALUES($1,$2,$3,now()) ON CONFLICT(user_id) DO UPDATE SET locale=EXCLUDED.locale,color_scheme=EXCLUDED.color_scheme,updated_at=now()`, userID, prefs.Locale, prefs.ColorScheme)
+	if prefs.SendShortcut != "" && prefs.SendShortcut != "enter" && prefs.SendShortcut != "ctrl_enter" {
+		return chat.UserPreferences{}, chat.ErrInvalid
+	}
+	// Old clients omit the new field: preserve an existing choice atomically.
+	err := p.Pool.QueryRow(context.Background(), `INSERT INTO user_preferences(user_id,locale,color_scheme,send_shortcut,updated_at) VALUES($1,$2,$3,COALESCE(NULLIF($4,''),'ctrl_enter'),now()) ON CONFLICT(user_id) DO UPDATE SET locale=EXCLUDED.locale,color_scheme=EXCLUDED.color_scheme,send_shortcut=COALESCE(NULLIF($4,''),user_preferences.send_shortcut),updated_at=now() RETURNING send_shortcut`, userID, prefs.Locale, prefs.ColorScheme, prefs.SendShortcut).Scan(&prefs.SendShortcut)
 	return prefs, err
 }
 

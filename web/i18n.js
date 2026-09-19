@@ -1,4 +1,6 @@
 const en = {
+ "Восстановить владельца группы":"Recover group ownership","Пиктограмма семейного чата":"Family chat icon",
+  "Вставить из буфера": "Paste from clipboard",
   "Редактировать участника": "Edit family member",
   "Редактировать": "Edit",
   "Роли доступа меняет только владелец семьи.": "Only the family owner can change access roles.",

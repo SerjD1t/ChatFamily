@@ -23,11 +23,16 @@ func TestOnlyAuthorCanEditOrDeleteMessage(t *testing.T) {
 	}
 }
 
-func TestGroupCreationRequiresPermission(t *testing.T) {
+func TestGroupCreationIsAvailableToRegisteredUser(t *testing.T) {
 	s := New(owner())
 	member := User{ID: "member", Permissions: map[Permission]bool{}}
-	if _, err := s.CreateGroup(member, "Без прав", nil); err != ErrForbidden {
-		t.Fatalf("create group error = %v, want forbidden", err)
+	if _, err := s.CreateGroup(member, "Unregistered", nil); err != ErrForbidden {
+		t.Fatal("unregistered creator", err)
+	}
+	s.users[member.ID] = member
+	c, err := s.CreateGroup(member, "Independent", nil)
+	if err != nil || c.GroupRole != "owner" {
+		t.Fatal("registered user cannot create group", err)
 	}
 }
 

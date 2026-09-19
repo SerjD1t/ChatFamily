@@ -23,10 +23,11 @@ type Service struct {
 	users         map[string]User
 	conversations map[string]*Conversation
 	messages      map[string]*Message
+	groupOwners   map[string]string
 }
 
 func New(admin User) *Service {
-	s := &Service{users: map[string]User{admin.ID: admin}, conversations: map[string]*Conversation{}, messages: map[string]*Message{}}
+	s := &Service{users: map[string]User{admin.ID: admin}, conversations: map[string]*Conversation{}, messages: map[string]*Message{}, groupOwners: map[string]string{}}
 	s.conversations["family"] = &Conversation{ID: "family", Kind: Family, Title: "Семья", Members: map[string]bool{admin.ID: true}}
 	return s
 }
@@ -43,6 +44,13 @@ func (s *Service) Conversations(userID string) []Conversation {
 	for _, c := range s.conversations {
 		if c.Members[userID] {
 			copy := *c
+			if c.Kind == Group {
+				copy.GroupRole = "member"
+				copy.CanInvite = s.groupOwners[c.ID] == userID
+				if copy.CanInvite {
+					copy.GroupRole = "owner"
+				}
+			}
 			for _, message := range s.messages {
 				if message.ConversationID != c.ID || copy.LastMessageAt != nil && !message.CreatedAt.After(*copy.LastMessageAt) {
 					continue
@@ -72,23 +80,27 @@ func (s *Service) Conversations(userID string) []Conversation {
 	return out
 }
 func (s *Service) CreateGroup(actor User, title string, members []string) (Conversation, error) {
-	if !actor.Permissions[CreateGroups] {
-		return Conversation{}, ErrForbidden
-	}
 	title = strings.TrimSpace(title)
 	if title == "" || len([]rune(title)) > 120 {
 		return Conversation{}, ErrInvalid
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if u, ok := s.users[actor.ID]; !ok || u.Disabled {
+		return Conversation{}, ErrForbidden
+	}
 	c := &Conversation{ID: newID(), Kind: Group, Title: title, Members: map[string]bool{actor.ID: true}}
 	for _, id := range members {
-		if _, ok := s.users[id]; ok {
-			c.Members[id] = true
+		if u, ok := s.users[id]; !ok || u.Disabled {
+			return Conversation{}, ErrForbidden
 		}
+		c.Members[id] = true
 	}
 	s.conversations[c.ID] = c
-	return *c, nil
+	s.groupOwners[c.ID] = actor.ID
+	result := *c
+	result.GroupRole, result.CanInvite = "owner", true
+	return result, nil
 }
 func (s *Service) CreateMessage(actor User, conversationID, body string, attachments []Attachment) (Message, error) {
 	body = strings.TrimSpace(body)

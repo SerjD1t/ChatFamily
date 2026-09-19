@@ -1,4 +1,12 @@
 import { api, $, request, safe } from "./api.js";
+import { bindClipboard } from "./clipboard.js";
+import { initMediaViewer } from "./media-viewer.js";
+import { initMessageActions, messageActionsMarkup } from "./message-actions.js";
+import { initGroups, classifyGroups, managesGroup } from './groups.js';
+import { initInterfamily } from './interfamily.js';
+import { initSendSettings, shouldSend } from "./send-settings.js";
+const attachmentDrafts = new Map();
+let attachmentConversation = null;
 import { initJoinFamily } from "./join-family.js";
 import { initUserLifecycle } from "./user-lifecycle.js";
 import { mountDirectory, personalChatOrder } from "./directory.js";
@@ -18,7 +26,7 @@ import { attachmentMarkup, bindAttachmentFallback } from "./attachments.js";
 import { createReceipts } from "./receipts.js";
 import { createAppearanceSettings } from "./appearance.js";
 import { createReceiptDetails, receiptButton } from "./receipt-details.js";
-import { activeFamily, canManageFamily, familyConversations, summarizeShopping } from "./family-context.js";
+import { activeFamily, canManageFamily, summarizeShopping } from "./family-context.js";
 import { announce, confirmAction, withBusy } from "./ui.js";
 import { firstLine, formatConversationTime, formatDayLabel, formatMessageTime, formatShoppingDate, groupMessageEntries, initials, splitReplyBody, todayISO } from "./format.js";
 import { applyTranslations, observeTranslations, tr } from "./i18n.js";
@@ -139,7 +147,7 @@ const familySections = [
   [shoppingID, "shopping", "shopping", "🛒"],
 ];
 let minPasswordLength = 12;
-const navigationLabels = { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Дела и покупки", chats: "Чаты семьи", allChats: "Все чаты семьи" };
+const navigationLabels = { personal: "Личные", family: "Семья", familyChat: "Семейный чат", children: "Дети", grandparents: "Бабушки и дедушки", shopping: "Дела и покупки", chats: "Семейные чаты", allChats: "Все группы" };
 function t(key) { return tr(navigationLabels[key] || key, userPreferences.locale); }
 function applyPasswordPolicy(policy) {
   minPasswordLength = policy.minPasswordLength || 12;
@@ -147,6 +155,7 @@ function applyPasswordPolicy(policy) {
     $(selector).minLength = minPasswordLength;
 }
 function applyInterfacePreferences() {
+  $("#body").setAttribute('aria-keyshortcuts',userPreferences.sendShortcut==='enter'?'Enter':'Control+Enter Meta+Enter');
   document.documentElement.lang = userPreferences.locale || "ru";
   appearance.applySaved();
   mobileBackButton.textContent = `‹ ${tr("Назад", userPreferences.locale || "ru")}`;
@@ -183,6 +192,7 @@ function closeMobileContent() {
 }
 mobileBackButton.onclick = closeMobileContent;
 function resetChatActions() {
+  if($('#familyChatIcon'))$('#familyChatIcon').hidden=true;
   for (const selector of ["#searchMessages", "#renameConversation", "#inviteFamily", "#toggleFavorite", "#manageMembers", "#deleteGroup", "#chatMore"])
     $(selector).hidden = true;
   $("#chatMoreMenu").hidden = true;
@@ -197,32 +207,24 @@ function avatarMarkup(title, icon = "") {
   return icon ? `<span class="conversationIcon" aria-hidden="true">${safe(icon)}</span>` : `<span class="conversationAvatar" aria-hidden="true">${safe(initials(title))}</span>`;
 }
 function renderConversations() {
-  const direct = directChats(),
-    personalUnread = direct.reduce((n, c) => n + (c.unreadCount || 0), 0),
-    groups = familyConversations(conversations, activeFamilyID),
-    family = groups.find((c) => c.kind === "family"),
-    favorites = groups.filter(
-      (c) => c.kind === "group" && favoriteIDs.has(c.id),
-    ),
-    filter = $("#conversationFilter")?.value.trim().toLocaleLowerCase() || "",
-    visibleGroups = groups.filter((conversation) => conversation.kind === "group" && (!filter || conversation.title.toLocaleLowerCase().includes(filter))),
-    button = (conversation, icon = "") => {
-      const title = conversation.title || "Диалог", unread = conversation.unreadCount || 0;
-      return `<button class="conversation ${active === conversation.id ? "selected" : ""}" data-id="${safe(conversation.id)}">${avatarMarkup(title, icon)}<span class="conversationContent"><span class="conversationTitle">${safe(title)}</span>${conversation.lastMessage ? `<span class="conversationPreview">${safe(conversation.lastMessage)}</span>` : ""}</span><span class="conversationMeta">${conversation.lastMessageAt ? `<span class="conversationTime">${safe(formatConversationTime(conversation.lastMessageAt, userPreferences.locale))}</span>` : ""}${unread ? `<b class="unread" aria-label="Непрочитанные сообщения">${unread}</b>` : ""}</span></button>`;
-    };
-  const sectionButton = (id, title, icon, unread = 0) => button({ id, title, unreadCount: unread }, icon);
-  const navigationHTML =
-    sectionButton(personalID, t("personal"), "👤", personalUnread) +
-    button({id: shoppingID, title: t("shopping"), lastMessage: `${activeFamilyID ? (userPreferences.locale === "en" ? "Personal + family" : "Личные и семья") : (userPreferences.locale === "en" ? "Personal" : "Личные")} · ${tr("Сегодня", userPreferences.locale)}: ${shoppingCounter.plannedToday} · ${tr("Просрочено", userPreferences.locale)}: ${shoppingCounter.overdue || 0}`}, "🛒") +
-    (activeFamilyID ? `<p class="navSectionTitle">${t("family")}</p>${family ? button({ ...family, title: t("familyChat") }, "💬") : ""}${familySections.filter(([id]) => id !== shoppingID).map(([id, title, , icon]) => sectionButton(id, t(title), icon)).join("")}<p class="navSectionTitle">${t("chats")}</p>` : "") +
-    favorites.filter((conversation) => visibleGroups.some((item) => item.id === conversation.id)).map((conversation) => button(conversation, "★")).join("") +
-    visibleGroups.filter((conversation) => !favoriteIDs.has(conversation.id)).map((conversation) => button(conversation, "#")).join("") +
-    (activeFamilyID && !visibleGroups.length ? `<p class="conversationPreview">${safe(filter ? "Ничего не найдено" : "Групп пока нет")}</p>` : "");
-  syncMarkup($("#conversations"), navigationHTML);
-  $("#conversations").onclick = (e) => {
-    const item = e.target.closest("[data-id]");
-    if (item) openConversation(item.dataset.id);
-  };
+  const label=(ru,en)=>userPreferences.locale==='en'?en:ru;
+  const buckets=classifyGroups(conversations,activeFamilyID),family=conversations.find(c=>c.kind==='family'&&c.familyId===activeFamilyID);
+  const filter=$("#conversationFilter")?.value.trim().toLocaleLowerCase()||"";
+  const button=(c,fallback='')=>`<button class="conversation ${active===c.id?'selected':''}" data-id="${safe(c.id)}">
+    ${avatarMarkup(c.title,c.icon||fallback)}<span class="conversationContent"><span class="conversationTitle">${favoriteIDs.has(c.id)?'<span aria-hidden="true">★ </span>':''}${safe(c.title)}</span>
+    ${c.lastMessage?`<span class="conversationPreview">${safe(c.lastMessage)}</span>`:''}</span><span class="conversationMeta">
+    ${c.lastMessageAt?`<span class="conversationTime">${safe(formatConversationTime(c.lastMessageAt,userPreferences.locale))}</span>`:''}
+    ${c.unreadCount?`<b class="unread" aria-label="${label('Непрочитанные сообщения','Unread messages')}">${c.unreadCount}</b>`:''}</span></button>`;
+  const list=items=>[...items].filter(c=>!filter||c.title.toLocaleLowerCase().includes(filter)).sort((a,b)=>Number(favoriteIDs.has(b.id))-Number(favoriteIDs.has(a.id))).map(c=>button(c,'💬')).join('');
+  const html=button({id:personalID,title:t('personal'),unreadCount:directChats().reduce((n,c)=>n+(c.unreadCount||0),0)},'👤')+
+    button({id:shoppingID,title:t('shopping'),lastMessage:`${activeFamilyID?label('Личные и семья','Personal + family'):label('Личные','Personal')} · ${label('Сегодня','Today')}: ${shoppingCounter.plannedToday} · ${label('Просрочено','Overdue')}: ${shoppingCounter.overdue||0}`},'🛒')+
+    `<p class="navSectionTitle">${label('Семья','Family')}</p>`+(family?button({...family,title:activeFamily(families,activeFamilyID)?.title||family.title},'🏠'):'')+list(buckets.family)+
+    `<p class="navSectionTitle">${label('Семейные чаты','Family chats')}</p>`+
+    list(conversations.filter(c=>c.kind==='interfamily'&&c.familyIds?.includes(activeFamilyID)))+
+    (canManageFamily(families,activeFamilyID)?`<button type="button" class="secondary" data-interfamily>${label('Управление семейными чатами','Manage family chats')}</button>`:'')+
+    `<p class="navSectionTitle">${label('Группы','Groups')}</p>`+list(buckets.other);
+  syncMarkup($("#conversations"),html);
+  $("#conversations").onclick=e=>{if(e.target.closest('[data-interfamily]')){interfamilyUI.open();return;}const button=e.target.closest('[data-id]');if(button)openConversation(button.dataset.id);};
 }
 $("#conversationFilter").oninput = renderConversations;
 async function loadConversations(navigateIfEmpty = true) {
@@ -265,12 +267,12 @@ function contactMarkup({ id, name, subtitle = "", preview = "", time = "", unrea
   return `<button class="personalContact" ${group ? `data-group-id="${safe(id)}"` : `data-user-id="${safe(id)}"`}><span class="conversationAvatar" aria-hidden="true">${safe(initials(name))}</span><span class="personalContactContent"><span class="personalContactTitle">${safe(name)}${self ? ` <span class="selfBadge">${tr("Вы", userPreferences.locale)}</span>` : ""}</span><span class="personalContactPreview">${safe(preview || subtitle)}</span></span><span class="contactMeta">${time ? `<span>${safe(time)}</span>` : ""}${unread ? `<b class="unread">${unread}</b>` : ""}</span></button>`;
 }
 function reactionAddButton(message) {
-  return `<button class="reaction reactionAdd" data-message="${message.id}" data-add-reaction="true" title="Добавить реакцию" aria-label="Добавить реакцию">＋</button><button class="reaction reactionReply" data-reply-id="${message.id}" title="Ответить" aria-label="Ответить">↩</button>`;
+  return messageActionsMarkup(message,userPreferences.locale);
 }
 function messageBodyMarkup(message) {
   if (message.deletedAt) return `<p class="messageBody">${tr("Сообщение удалено", userPreferences.locale)}</p>`;
   const { reply, body } = splitReplyBody(message.body);
-  return `${reply ? `<blockquote class="messageReply" data-no-i18n><strong>${safe(reply.author)}</strong><span>${safe(reply.text)}</span></blockquote>` : ""}<p class="messageBody">${safe(body)}</p>`;
+  return `${message.forwarded ? `<div class="forwardLabel" data-no-i18n>↪ ${userPreferences.locale==='en'?'Forwarded message':'Пересланное сообщение'}</div>` : ''}${reply ? `<blockquote class="messageReply" data-no-i18n><strong>${safe(reply.author)}</strong><span>${safe(reply.text)}</span></blockquote>` : ""}<p class="messageBody">${safe(body)}</p>`;
 }
 function openUserCard(userID, name, avatarURL) {
   $("#profileName").textContent = name || "Пользователь";
@@ -282,6 +284,8 @@ function openUserCard(userID, name, avatarURL) {
   $("#openEditNames").hidden = userID !== currentUser?.ID;
   $("#openInterfaceSettings").hidden = userID !== currentUser?.ID;
   $("#openAutomations").hidden = userID !== currentUser?.ID;
+  $("#openSendSettings").hidden = userID !== currentUser?.ID;
+  $("#openSendSettings").textContent = userPreferences.locale==='en'?'Messages':'Сообщения';
   $("#openAutomations").textContent = userPreferences.locale==='en'?'Automation':'Автоматизация';
   $("#interfaceSettingsForm").hidden = true;
   $("#interfaceLocale").value = userPreferences.locale || "ru";
@@ -351,7 +355,7 @@ async function openGroups(navigate = true) {
   $("#chatSubtitle").textContent = activeFamily(families, activeFamilyID)?.title || "";
   $("#composer").hidden = true;
   resetChatActions();
-  const groups = familyConversations(conversations, activeFamilyID);
+  const groups = conversations.filter(c=>c.kind==='group');
   $("#messages").innerHTML = groups.length
     ? `<div class="personalList">${groups.map((c) => contactMarkup({ id: c.id, name: c.title || "Семья", group: true, preview: c.lastMessage, time: formatConversationTime(c.lastMessageAt, userPreferences.locale), unread: c.unreadCount })).join("")}</div>`
     : '<p class="muted">Групп пока нет.</p>';
@@ -386,16 +390,23 @@ async function openConversation(id, before = "", navigate = true) {
   if (navigate) openMobileContent();
   active = id;
   $("#composer").hidden = false;
+  if (attachmentConversation !== id) {
+    if (attachmentConversation) attachmentDrafts.set(attachmentConversation, pendingFiles);
+    attachmentConversation = id;
+    pendingFiles = attachmentDrafts.get(id) || [];
+    renderAttachments();
+  }
   saveActive(active);
   renderConversations();
   const c = conversations.find((x) => x.id === id),
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
-  $("#chatTitle").textContent = c?.title || "Диалог";
+  $("#chatTitle").textContent = (c?.kind==='family'?activeFamily(families,c.familyId)?.title:c?.title) || c?.title || "Диалог";
   $("#chatSubtitle").textContent = c?.kind === "direct" ? "Личный диалог" : activeFamily(families, c?.familyId)?.title || "";
-  const canManageGroup = c?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
+  const canManageGroup = c?.kind==='group' ? managesGroup(c) : c?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
   $("#manageMembers").hidden = c?.kind !== "group";
-  $("#deleteGroup").hidden = c?.kind !== "group" || !canManageGroup;
+  $("#deleteGroup").hidden = c?.kind !== "group" || c?.groupRole !== 'owner';
   const canAdministerFamily = c?.kind === "family" && canManageFamily(families, activeFamilyID);
+  if($('#familyChatIcon'))$('#familyChatIcon').hidden=!canAdministerFamily;
   $("#inviteFamily").hidden = !canAdministerFamily;
   $("#searchMessages").hidden = !c;
   $("#renameConversation").hidden = !(c && canManageGroup);
@@ -486,9 +497,13 @@ async function openShopping(navigate = false) {
   }
 }
 function renderAttachments() {
-  $("#attachmentList").textContent = pendingFiles.length
-    ? pendingFiles.map((file) => file.name).join(", ")
-    : "";
+  $("#attachmentList").innerHTML = pendingFiles.map((file,index)=>`<span data-no-i18n>${safe(file.name)} <button type="button" class="secondary" data-remove-attachment="${index}" aria-label="${userPreferences.locale==='en'?'Remove attachment':'Убрать вложение'}">×</button></span>`).join(' ');
+}
+function addPendingFiles(files) {
+  if (pendingFiles.length+files.length>10 || [...pendingFiles,...files].reduce((sum,f)=>sum+f.size,0)>100*1024*1024 || files.some(f=>!f.size||f.size>25*1024*1024)) {
+    announce(userPreferences.locale==='en'?'Up to 10 nonempty files, 25 MiB each, 100 MiB total.':'До 10 непустых файлов, 25 МиБ каждый, 100 МиБ всего.','error');return false;
+  }
+  pendingFiles=[...pendingFiles,...files];renderAttachments();return true;
 }
 async function uploadAttachment(file) {
   const form = new FormData();
@@ -511,7 +526,7 @@ async function startApp() {
   activeFamilyID = families.some((family) => family.id === savedFamily) ? savedFamily : (families[0]?.id || "");
   const selector = $("#familySelect");
   selector.innerHTML = families.map((f) => `<option value="${safe(f.id)}">${safe(f.title)}</option>`).join("");
-  $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
+  $("#newGroup").hidden = false;
 	$("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
 	$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
 	$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
@@ -524,7 +539,7 @@ async function startApp() {
     const previous = active;
     const keepGlobal = previous === personalID ||
       previous === shoppingID ||
-      conversations.some(c => c.id === previous && c.kind === "direct");
+      conversations.some(c => c.id === previous && ['direct','group','interfamily'].includes(c.kind));
     const section = [shoppingID, childrenID, grandparentsID, groupsID].includes(previous) ? previous : null;
     activeFamilyID = selector.value;
     if(previous===shoppingID){
@@ -545,7 +560,7 @@ async function startApp() {
     const navigationVersion = loadVersion;
 		$("#currentFamilyTitle").textContent = families.find((f) => f.id === activeFamilyID)?.title || "Без семьи";
 		$("#currentFamilyRole").textContent = ({ owner: "Владелец", admin: "Администратор", member: "Участник" })[families.find((f) => f.id === activeFamilyID)?.role] || "";
-    $("#newGroup").hidden = !canManageFamily(families, activeFamilyID);
+  $("#newGroup").hidden = false;
 		$("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
     try {
       await loadConversations(false);
@@ -666,47 +681,7 @@ function openApplicationPermissions(user) {
   $("#permissionList").innerHTML = items.map(([value, label, help]) => `<label><input type="checkbox" value="${value}" ${user.Permissions?.[value] ? "checked" : ""}><span><strong>${label}</strong><small>${help}</small></span></label>`).join("");
   $("#permissionsDialog").showModal();
 }
-async function openMembers() {
-  if (!active || active === personalID) return;
-  try {
-    const conversation = conversations.find((item) => item.id === active);
-    const canManage = conversation?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
-    const members = await request(`/conversations/${active}/members`);
-    const candidates = canManage ? await request(`/conversations/${active}/member-candidates`) : [];
-    const ids = new Set(members.map((u) => u.ID));
-    $("#membersTitle").textContent = canManage ? "Участники группы" : "Состав группы";
-    $("#memberCandidateLabel").hidden = !canManage;
-    $("#addMember").hidden = !canManage;
-    $("#groupMembers").innerHTML = members
-      .map(
-        (u) =>
-          `<li><strong>${safe(u.Name)}</strong>${u.Email ? `<small>${safe(u.Email)}</small>` : ""}${canManage && u.ID !== currentUser.ID ? `<button class="removeMember secondary" data-id="${safe(u.ID)}">Удалить</button>` : ""}</li>`,
-      )
-      .join("");
-    const options = candidates
-      .filter((u) => !ids.has(u.ID))
-      .map(
-        (u) =>
-          `<option value="${safe(u.ID)}">${safe(u.Name)} — ${safe(u.Email)}</option>`,
-      )
-      .join("");
-    $("#memberSelect").innerHTML =
-      options || '<option value="">Нет доступных пользователей</option>';
-    $("#addMember").disabled = !options || !canManage;
-    $("#groupMembers").onclick = async (e) => {
-      if (!canManage || !e.target.dataset.id)
-        return;
-      if (!await confirmAction({ title: "Удалить участника?", message: "Он потеряет доступ к этой группе, но останется в семье.", confirmLabel: "Удалить", destructive: true })) return;
-      try {
-        await request(`/conversations/${active}/members/${encodeURIComponent(e.target.dataset.id)}`, { method: "DELETE" });
-        announce("Участник удалён из группы");
-        openMembers();
-        loadConversations();
-      } catch (error) { $("#memberError").textContent = error.message; }
-    };
-    $("#membersDialog").showModal();
-  } catch (error) { announce(error.message, "error"); }
-}
+async function openMembers(){const c=conversations.find(c=>c.id===active);if(c?.kind==='group')await groupUI.open(c);}
 async function openFamilyManagement() {
   if (!canManageFamily(families, activeFamilyID)) return;
   const familyConversation = conversations.find((conversation) => conversation.kind === "family" && conversation.familyId === activeFamilyID);
@@ -896,6 +871,9 @@ const automationButton=document.createElement('button');automationButton.id='ope
 $("#openInterfaceSettings").after(automationButton);
 initAutomations({profile:$("#profileDialog"),button:automationButton,request,locale:()=>userPreferences.locale});
 const appearance=createAppearanceSettings({form:$("#interfaceSettingsForm"),dialog:$("#profileDialog"),userID:()=>currentUser?.ID||'',preferences:()=>userPreferences});
+const sendSettingsButton=document.createElement('button');sendSettingsButton.id='openSendSettings';sendSettingsButton.type='button';sendSettingsButton.className='secondary';sendSettingsButton.hidden=true;sendSettingsButton.setAttribute('data-no-i18n','');
+$("#openInterfaceSettings").after(sendSettingsButton);
+initSendSettings({button:sendSettingsButton,preferences:()=>userPreferences,request,onSaved:prefs=>{userPreferences=prefs;applyInterfacePreferences();}});
 $("#openInterfaceSettings").textContent='Оформление и язык';
 let savingAppearance=false;
 $("#openInterfaceSettings").onclick = () => { const form=$("#interfaceSettingsForm");if(form.hidden)appearance.prepare();else appearance.applySaved();form.hidden=!form.hidden; };
@@ -964,7 +942,7 @@ initJoinFamily({ request, locale: () => userPreferences.locale, announce, onJoin
   const family = families.find(f => f.id === activeFamilyID);
   $("#currentFamilyTitle").textContent = family?.title || "Без семьи";
   $("#currentFamilyRole").textContent = ({owner:"Владелец",admin:"Администратор",member:"Участник"})[family?.role] || "";
-  $("#newGroup").hidden = $("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
+  $("#newGroup").hidden = false; $("#manageCurrentFamily").hidden = !canManageFamily(families, activeFamilyID);
   $("#onboarding").hidden = families.length > 0;
   await loadConversations();
 } });
@@ -1061,8 +1039,9 @@ $("#groupForm").onsubmit = async (e) => {
   const title = $("#groupTitle").value.trim();
   if (!title) return;
   try {
-    await withBusy(e.submitter, "Создаём…", async () => request("/conversations", { method: "POST", body: JSON.stringify({ title, memberIds: [], familyId: activeFamilyID }) }));
-    $("#groupDialog").close(); $("#groupTitle").value = ""; active = null; await loadConversations(); announce("Группа создана");
+    const created=await withBusy(e.submitter, "Создаём…", async () => request("/conversations", { method: "POST", body: JSON.stringify({ title, memberIds: [] }) }));
+    if(!created)return;
+    $("#groupDialog").close(); $("#groupTitle").value = ""; await loadConversations(false); await openConversation(created.id); announce("Группа создана");
   } catch (error) { $("#groupError").textContent = error.message; }
 };
 $("#openAcceptInvite").onclick = () => {
@@ -1122,8 +1101,13 @@ $("#attach").onclick = () => {
   $("#sendMenu").hidden = true;
 };
 $("#attachmentFiles").onchange = (e) => {
-  pendingFiles = [...e.target.files];
-  renderAttachments();
+  if (!send.disabled) addPendingFiles([...e.target.files]);
+  e.target.value='';
+};
+$("#attachmentList").onclick = event => {
+  const button=event.target.closest('[data-remove-attachment]');
+  if(!button||send.disabled)return;
+  pendingFiles=pendingFiles.filter((_,i)=>i!==Number(button.dataset.removeAttachment));renderAttachments();
 };
 $("#emoji").onclick = () => {
   $("#emojiBar").hidden = !$("#emojiBar").hidden;
@@ -1147,6 +1131,10 @@ $("#reactionPicker").onclick = async (e) => {
 let pressTimer,
   longPress = false;
 const send = $("#sendButton");
+const pasteButton=document.createElement('button');
+pasteButton.type='button';pasteButton.className='menuAction';pasteButton.textContent='Вставить из буфера';
+$("#sendMenu").append(pasteButton);
+bindClipboard({input:$("#body"),button:pasteButton,context:()=>`${currentUser?.ID}:${active}:${loadVersion}`,available:()=>!send.disabled&&!$("#composer").hidden&&conversations.some(c=>c.id===active),addFiles:addPendingFiles,report:message=>announce(message,'error'),locale:()=>userPreferences.locale});
 send.onpointerdown = () => {
   longPress = false;
   pressTimer = setTimeout(() => {
@@ -1164,23 +1152,28 @@ $("#composer").onsubmit = async (e) => {
   const body = $("#body").value.trim();
   if (send.disabled || !active || active === personalID || (!body && !pendingFiles.length))
     return;
-  const conversationID = active, submittedReply = replyDraft;
+  const conversationID = active, submittedReply = replyDraft, submittedFiles = [...pendingFiles], submittedText = $("#body").value;
   const messageBody = submittedReply ? `↩ ${submittedReply.author}: ${firstLine(submittedReply.body)}\n${body}` : body;
   send.disabled = true;
   try {
     const attachments = [];
-    for (const file of pendingFiles)
+    for (const file of submittedFiles)
       attachments.push(await uploadAttachment(file));
     await request(`/conversations/${conversationID}/messages`, {
       method: "POST",
       body: JSON.stringify({ body: messageBody, attachments }),
     });
     if (replyDraft === submittedReply) { replyDraft = null; $("#replyPreview").hidden = true; }
-    $("#body").value = "";
-    $("#body").style.height = "auto";
-    $("#attachmentFiles").value = "";
-    pendingFiles = [];
-    renderAttachments();
+    attachmentDrafts.delete(conversationID);
+    if (attachmentConversation === conversationID) {
+      pendingFiles = pendingFiles.filter(file=>!submittedFiles.includes(file));
+      renderAttachments();
+    }
+    if (active === conversationID) {
+      if ($("#body").value === submittedText) $("#body").value = "";
+      $("#body").style.height = "auto";
+      $("#attachmentFiles").value = "";
+    }
     scheduleMessageSync(conversationID);
     loadConversations().catch(() => {});
   } catch (e) { announce(e.message, "error"); } finally {
@@ -1253,8 +1246,7 @@ function connectEvents() {
       await loadConversations();
       if (active === personalID) await openPersonal();
       else if (event.type === "conversations.changed") {
-        const conversation = conversations.find(item => item.id === active);
-        if (conversation) $("#chatTitle").textContent = conversation.title;
+        await syncActiveGroupAccess();
       }
     } catch (_) {}
   };
@@ -1265,7 +1257,8 @@ let replyDraft = null;
 document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-reply-id]");
   if (!button) return;
-  const article = button.closest(".message");
+  const article = button.closest(".message") || document.querySelector(`[data-message-id="${CSS.escape(button.dataset.replyId)}"]`);
+  if (!article || article.dataset.deleted === 'true') return;
   replyDraft = {
     author: article?.querySelector(".messageAuthor")?.textContent || "Сообщение",
     body: firstLine(article?.querySelector(".messageBody")?.textContent || "Вложение"),
@@ -1309,9 +1302,25 @@ $("#body").addEventListener("input", (event) => {
   event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px`;
 });
 $("#body").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+  if (shouldSend(event,userPreferences.sendShortcut)) {
     event.preventDefault();
     $("#composer").requestSubmit();
   }
 });
 observeTranslations(() => userPreferences.locale || "ru");
+initMediaViewer({locale:()=>userPreferences.locale||'ru'});
+async function syncActiveGroupAccess(){
+ const c=conversations.find(c=>c.id===active);
+ if(active&&!active.startsWith('__')&&!c){active=null;await openPersonal();return;}
+ if(!c)return;
+ $('#chatTitle').textContent=c.kind==='family'?(activeFamily(families,c.familyId)?.title||c.title):c.title;
+ if(c.kind==='group'){
+  $('#renameConversation').hidden=!managesGroup(c);
+  $('#deleteGroup').hidden=c.groupRole!=='owner';
+ }
+}
+const groupUI=initGroups({request,locale:()=>userPreferences.locale||'ru',refresh:async()=>{await loadConversations(false);await syncActiveGroupAccess();},announce,confirm:confirmAction});
+const interfamilyUI=initInterfamily({request,family:()=>activeFamily(families,activeFamilyID),locale:()=>userPreferences.locale||'ru',refresh:async()=>{await loadConversations(false);await syncActiveGroupAccess();},confirm:confirmAction});
+const familyIconButton=document.createElement('button');familyIconButton.id='familyChatIcon';familyIconButton.type='button';familyIconButton.className='menuAction';familyIconButton.hidden=true;familyIconButton.textContent=userPreferences.locale==='en'?'Family chat icon':'Пиктограмма семейного чата';$('#chatMoreMenu').append(familyIconButton);familyIconButton.onclick=()=>{const c=conversations.find(c=>c.id===active);if(c)groupUI.familyIcon(c);};
+const recoverGroupsButton=document.createElement('button');recoverGroupsButton.type='button';recoverGroupsButton.className='secondary';recoverGroupsButton.textContent='Восстановить владельца группы';$('#applicationAdminSections').append(recoverGroupsButton);recoverGroupsButton.onclick=()=>groupUI.recovery();
+initMessageActions({request,user:()=>currentUser,locale:()=>userPreferences.locale||'ru',onSent:()=>announce(userPreferences.locale==='en'?'Message forwarded':'Сообщение переслано')});

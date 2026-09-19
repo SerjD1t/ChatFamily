@@ -12,7 +12,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -472,15 +471,13 @@ func (a *app) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := filepath.Join(a.cfg.UploadDirectory, filepath.Base(key))
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		write(w, http.StatusNotFound, map[string]string{"error": "Файл не найден"})
 		return
 	}
-	w.Header().Set("Content-Type", attachment.ContentType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename}))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	defer file.Close()
+	serveAttachmentContent(w, r, file, attachment)
 }
 func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -657,22 +654,12 @@ func (a *app) createGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	var c chat.Conversation
 	var err error
-	if a.db != nil && in.FamilyID == "" {
-		in.FamilyID, _ = a.db.DefaultFamilyID(id(r))
-	}
-	if a.db != nil && in.FamilyID == "" {
-		write(w, http.StatusBadRequest, map[string]string{"error": "Не выбрана семья"})
-		return
-	}
-	if a.db != nil {
-		c, err = a.db.CreateGroupInFamily(a.user(id(r)), in.FamilyID, in.Title, in.MemberIDs)
-	} else {
-		c, err = a.chat.CreateGroup(a.user(id(r)), in.Title, in.MemberIDs)
-	}
+	c, err = a.chat.CreateGroup(a.user(id(r)), in.Title, in.MemberIDs)
 	if err != nil {
 		domainError(w, err)
 		return
 	}
+	a.hub.publish(realtimeEvent{Type: "conversations.changed"})
 	write(w, 201, c)
 }
 func (a *app) messages(w http.ResponseWriter, r *http.Request) {
@@ -899,6 +886,7 @@ func (a *app) addMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+	a.hub.publish(realtimeEvent{Type: "conversations.changed"})
 }
 func (a *app) members(w http.ResponseWriter, r *http.Request) {
 	if a.db == nil {
@@ -923,6 +911,7 @@ func (a *app) removeMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+	a.hub.publish(realtimeEvent{Type: "conversations.changed"})
 }
 func (a *app) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	if err := a.chat.DeleteGroup(a.user(id(r)), r.PathValue("id")); err != nil {

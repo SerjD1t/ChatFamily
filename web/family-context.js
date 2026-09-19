@@ -5,8 +5,8 @@ export function activeFamily(families, familyID) {
 export function familyConversations(conversations, familyID) {
   return conversations.filter(
     (conversation) =>
-      conversation.familyId === familyID &&
-      (conversation.kind === "family" || conversation.kind === "group"),
+      !!familyID && (conversation.kind === "family" && conversation.familyId === familyID ||
+      conversation.kind === "group" && conversation.familyIds?.includes(familyID)),
   );
 }
 

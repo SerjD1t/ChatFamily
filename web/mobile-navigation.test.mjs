@@ -9,7 +9,7 @@ for (const mobile of [true,false]) test(`${mobile?'mobile':'desktop'}: retained 
  for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history'])globalThis[name]=dom.window[name];
  globalThis.matchMedia=()=>({matches:mobile});globalThis.CSS={escape:value=>value};
  let socket;globalThis.WebSocket=class{constructor(){socket=this;}};
- const conversations=['family','group','direct'].map(kind=>({id:kind,kind,familyId:kind==='direct'?undefined:'f1',title:'Synthetic '+kind}));
+ const conversations=['family','group','direct'].map(kind=>({id:kind,kind,familyId:kind==='family'?'f1':undefined,familyIds:kind==='group'?['f1']:[],groupRole:kind==='group'?'owner':undefined,title:'Synthetic '+kind}));
  conversations.push({id:'family2',kind:'family',familyId:'f2',title:'Second family chat'});
  const calls=[];
  globalThis.fetch=async(url)=>{
@@ -66,12 +66,23 @@ for (const mobile of [true,false]) test(`${mobile?'mobile':'desktop'}: retained 
   assert.equal($('#manageCurrentFamily').hidden,false);
   await switchFamily('f2');assert.equal($('#messages').dataset.conversationId,'family2');
   await switchFamily('f1');$('[data-id="group"]').click();await wait();
-  await switchFamily('f2');assert.equal($('#messages').dataset.conversationId,'family2');
+  const groupArticle=$('[data-message-id="m1"]');$('#body').value='Group draft';
+  await switchFamily('f2');assert.equal($('#messages').dataset.conversationId,'group');
+  assert.equal($('[data-message-id="m1"]'),groupArticle);assert.equal($('#body').value,'Group draft');
   $('[data-id="__personal__"]').click();await wait();
   const directory=$('#personalDirectory');await switchFamily('f1');assert.equal($('#personalDirectory'),directory);
   $('#personalDirectory [data-user-id="u2"]').click();await wait();
   const directArticle=$('[data-message-id="m1"]');$('#body').value='Direct draft';
   await switchFamily('f2');assert.equal($('#messages').dataset.conversationId,'direct');
   assert.equal($('[data-message-id="m1"]'),directArticle);assert.equal($('#body').value,'Direct draft');
+  $('[data-id="group"]').click();await wait();
+  const retainedGroup=$('[data-message-id="m1"]');$('#body').value='Unsent group draft';
+  conversations.find(c=>c.id==='group').groupRole='member';
+  await socket.onmessage({data:JSON.stringify({type:'conversations.changed'})});await wait();
+  assert.equal($('#deleteGroup').hidden,true);assert.equal($('#renameConversation').hidden,true);
+  assert.equal($('[data-message-id="m1"]'),retainedGroup);assert.equal($('#body').value,'Unsent group draft');
+  conversations.splice(conversations.findIndex(c=>c.id==='group'),1);
+  await socket.onmessage({data:JSON.stringify({type:'conversations.changed'})});await wait();
+  assert.equal($('#composer').hidden,true);assert.equal($('[data-id="group"]'),null);assert.ok($('#personalDirectory'));
  }finally{dom.window.close();}
 });

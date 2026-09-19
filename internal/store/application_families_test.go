@@ -76,10 +76,11 @@ func TestApplicationFamilyAdministration(t *testing.T) {
 		t.Fatal("new member lacks family chat", err)
 	}
 	group, direct := id(), id()
-	if _, err = p.Pool.Exec(ctx, `INSERT INTO conversations(id,kind,family_id) VALUES($1,'group',$2),($3,'direct',NULL)`, group, f.ID, direct); err != nil {
+	if _, err = p.Pool.Exec(ctx, `INSERT INTO conversations(id,kind,group_owner_id) VALUES($1,'group',$2),($3,'direct',NULL)`, group, user, direct); err != nil {
 		t.Fatal(err)
 	}
 	defer p.Pool.Exec(ctx, `DELETE FROM conversations WHERE id=$1`, direct)
+	defer p.Pool.Exec(ctx, `DELETE FROM conversations WHERE id=$1`, group)
 	if _, err = p.Pool.Exec(ctx, `INSERT INTO conversation_members(conversation_id,user_id) VALUES($1,$3),($2,$3)`, group, direct, user); err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +136,8 @@ func TestApplicationFamilyAdministration(t *testing.T) {
 	if _, err = p.Messages(chat.User{ID: user}, cid); !errors.Is(err, chat.ErrForbidden) {
 		t.Fatal("removed member still reads", err)
 	}
-	if _, err = p.Messages(chat.User{ID: user}, group); !errors.Is(err, chat.ErrForbidden) {
-		t.Fatal("removed member reads group", err)
+	if _, err = p.Messages(chat.User{ID: user}, group); err != nil {
+		t.Fatal("family removal revoked independent group", err)
 	}
 	if _, err = p.Messages(chat.User{ID: user}, direct); err != nil {
 		t.Fatal("personal dialog affected", err)

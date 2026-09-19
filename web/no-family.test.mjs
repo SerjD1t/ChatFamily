@@ -10,12 +10,13 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history'])globalThis[name]=dom.window[name];
   globalThis.matchMedia=()=>({matches:mobile});globalThis.CSS={escape:value=>value};globalThis.WebSocket=class{};
   if(saved)localStorage.setItem('familychat.activeConversation',saved);
-  let sent=0,failContacts=false;
+  let sent=0,uploads=0,failContacts=false;
   const conversation={id:'direct-test',kind:'direct',title:'Synthetic user',peerUserId:'u2'};
   const message={id:'m1',authorId:'u2',authorName:'Synthetic user',body:'Visible history',createdAt:'2026-09-17T10:00:00Z',reactions:[]};
   globalThis.fetch=async(url,options={})=>{
    const path=url.replace('/api/v1','');let data=[];
    if(path==='/auth/me')data={ID:'u1',Name:'Test',Permissions:{send_messages:true}};
+   else if(path==='/attachments'&&options.method==='POST'){uploads++;data={id:'synthetic-file',filename:'synthetic.png',bytes:3};}
    else if(path==='/user/preferences')data={locale:'ru',colorScheme:'light'};
    else if(path==='/password-policy')data={minPasswordLength:12};
    else if(path==='/conversations')data=[conversation];
@@ -31,7 +32,7 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   await import(`./app.js?no-family-${mobile}-${saved}`);await wait();
   const $=selector=>document.querySelector(selector);
   assert.equal($('#currentFamilyTitle').textContent,'Без семьи');
-  assert.equal($('#newGroup').hidden,true);assert.equal($('#manageCurrentFamily').hidden,true);
+  assert.equal($('#newGroup').hidden,false);assert.equal($('#manageCurrentFamily').hidden,true);
   assert.equal($('#conversations').querySelectorAll('[data-id]').length,2);
   assert.equal($('#onboarding').hidden,!!saved);assert.equal($('#messages').hidden,!saved);
   if(saved==='direct-test'){assert.ok($('[data-message-id="m1"]'));assert.equal($('#composer').hidden,false);}
@@ -41,7 +42,12 @@ for(const mobile of [false,true])for(const saved of ['', '__personal__','direct-
   assert.equal(document.body.classList.contains('mobileContentOpen'),mobile);
   $('#personalDirectory [data-user-id="u2"]').click();await wait();
   assert.equal($('#messages').hidden,false);assert.ok($('[data-message-id="m1"]'));assert.equal($('#composer').hidden,false);
+  const paste=new dom.window.Event('paste',{cancelable:true});Object.defineProperty(paste,'clipboardData',{value:{files:[new File(['abc'],'synthetic.png',{type:'image/png'})],getData:()=>''}});
+  $('#body').dispatchEvent(paste);assert.match($('#attachmentList').textContent,/synthetic.png/);assert.equal(sent,0);assert.equal(uploads,0);
+  $('[data-remove-attachment]').click();assert.equal($('#attachmentList').textContent,'');
+  $('#body').dispatchEvent(paste);assert.match($('#attachmentList').textContent,/synthetic.png/);
   $('#body').value='Test message';$('#composer').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await wait();assert.equal(sent,1);
+  assert.equal(uploads,1);assert.equal($('#attachmentList').textContent,'');
   failContacts=true;$('[data-id="__personal__"]').click();await wait();
   assert.equal($('#messages').hidden,false);assert.match($('#messages').textContent,/Test contacts error/);assert.equal($('#onboarding').hidden,true);
   $('[data-id="__shopping__"]').click();await wait();

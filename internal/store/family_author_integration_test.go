@@ -28,7 +28,7 @@ func TestFamilyAuthorLabels(t *testing.T) {
 	_, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,first_name,last_name,password_hash) VALUES('test_label_user','label@example.test','Test Surname','Test','Surname','');
  INSERT INTO families(id,title) VALUES('test_label_f1','Family 1'),('test_label_f2','Family 2');
  INSERT INTO family_members(family_id,user_id,relationship) VALUES('test_label_f1','test_label_user','Мама'),('test_label_f2','test_label_user','Бабушка');
- INSERT INTO conversations(id,kind,family_id) VALUES('test_label_c1','family','test_label_f1'),('test_label_c2','family','test_label_f2'),('test_label_direct','direct',NULL),('test_label_group','group','test_label_f1');`)
+ INSERT INTO conversations(id,kind,family_id) VALUES('test_label_c1','family','test_label_f1'),('test_label_c2','family','test_label_f2'),('test_label_direct','direct',NULL),('test_label_group','group',NULL);`)
 	if err != nil {
 		t.Fatal(err)
 	}

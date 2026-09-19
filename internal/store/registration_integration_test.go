@@ -42,6 +42,25 @@ func TestRegistrationMessagingWithoutFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids = append(ids, b.ID)
+	prefs, err := p.UserPreferences(a.ID)
+	if err != nil || prefs.SendShortcut != "ctrl_enter" {
+		t.Fatal("bad default shortcut", err)
+	}
+	prefs.SendShortcut = "enter"
+	if _, err = p.SetUserPreferences(a.ID, prefs); err != nil {
+		t.Fatal(err)
+	}
+	prefs.SendShortcut = ""
+	if prefs, err = p.SetUserPreferences(a.ID, prefs); err != nil || prefs.SendShortcut != "enter" {
+		t.Fatal("old client reset shortcut", err)
+	}
+	if prefs, err = p.UserPreferences(b.ID); err != nil || prefs.SendShortcut != "ctrl_enter" {
+		t.Fatal("shortcut leaked to another user", err)
+	}
+	prefs.SendShortcut = "invalid"
+	if _, err = p.SetUserPreferences(b.ID, prefs); !errors.Is(err, chat.ErrInvalid) {
+		t.Fatal("invalid shortcut accepted", err)
+	}
 	if len(a.Permissions) != 0 {
 		t.Fatal("incorrect registration permissions")
 	}
