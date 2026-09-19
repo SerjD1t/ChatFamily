@@ -90,6 +90,12 @@ func TestPostgresRepositoryRoundTrip(t *testing.T) {
 		t.Fatalf("delivery: %v %v", changed, err)
 	}
 	assertStatus("delivered")
+	if count, err := p.UnreadTotal(ctx, member.ID); err != nil || count != 1 {
+		t.Fatalf("delivery must retain unread: %d %v", count, err)
+	}
+	if count, err := p.UnreadTotal(ctx, admin.ID); err != nil || count != 0 {
+		t.Fatalf("own message is not unread: %d %v", count, err)
+	}
 	if changed, err := p.RecordReceipts(member, []string{message.ID}, false); err != nil || len(changed) != 0 {
 		t.Fatalf("duplicate delivery: %v %v", changed, err)
 	}
@@ -102,6 +108,9 @@ func TestPostgresRepositoryRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStatus("read")
+	if count, err := p.UnreadTotal(ctx, member.ID); err != nil || count != 1 {
+		t.Fatalf("one newer message remains unread: %d %v", count, err)
+	}
 	statuses, err := p.ReceiptStatuses(admin, []string{newer.ID})
 	if err != nil || statuses[newer.ID] != "sent" {
 		t.Fatalf("unseen newer message marked: %v %v", statuses, err)

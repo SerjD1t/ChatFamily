@@ -26,7 +26,10 @@ public class ShareWorker extends Worker {
     }
     @NonNull @Override public ForegroundInfo getForegroundInfo() {
         Context c=getApplicationContext(); NotificationManager nm=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
-        if(Build.VERSION.SDK_INT>=26) nm.createNotificationChannel(new NotificationChannel("uploads","Отправка вложений",NotificationManager.IMPORTANCE_LOW));
+        if(Build.VERSION.SDK_INT>=26) {
+            NotificationChannel channel=new NotificationChannel("uploads","Отправка вложений",NotificationManager.IMPORTANCE_LOW);
+            channel.setShowBadge(false);nm.createNotificationChannel(channel);
+        }
         Notification n=new NotificationCompat.Builder(c,"uploads").setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("ChatFamily").setContentText("Отправка вложений").setOngoing(true).build();
         int notificationId=("share-"+getInputData().getString("id")).hashCode() & Integer.MAX_VALUE;

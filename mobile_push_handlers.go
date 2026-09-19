@@ -54,7 +54,12 @@ func (a *app) notifyMobile(cid, excluded, kind string) {
 		return
 	}
 	for _, device := range devices {
-		status, invalid, err := a.fcm.Send(ctx, device.Token, device.UserID, cid, kind)
+		count, countErr := a.db.UnreadTotal(ctx, device.UserID)
+		var counts []int
+		if countErr == nil {
+			counts = []int{count}
+		}
+		status, invalid, err := a.fcm.Send(ctx, device.Token, device.UserID, cid, kind, counts...)
 		if invalid {
 			_ = a.db.RemoveInvalidMobileToken(ctx, device.Token)
 		}

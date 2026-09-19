@@ -1,4 +1,5 @@
 import { api, $, request, safe } from "./api.js";
+import {createBadge, applyAppBadge} from './badge.js';
 import { bindClipboard } from "./clipboard.js";
 import { initMediaViewer } from "./media-viewer.js";
 import { initMessageActions, messageActionsMarkup } from "./message-actions.js";
@@ -46,6 +47,9 @@ let conversations = [],
   families = [],
   activeFamilyID = "";
 let editingApplicationUser = null;
+const appBadge=createBadge({request,apply:applyAppBadge,user:()=>currentUser?.ID});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void appBadge.refresh();});
+window.addEventListener('online',()=>void appBadge.refresh());
 let displayedConversation = null, displayedMessages = new Map(), olderCursor = "";
 const reactionRequests = new Map(), reactionWrites = new Set();
 let messageSyncTimer = null, messageSyncRunning = false, messageSyncAgain = false;
@@ -230,6 +234,7 @@ function renderConversations() {
 bindInterfamilyMenu($("#conversations"),action=>interfamilyUI.open(action));
 $("#conversationFilter").oninput = renderConversations;
 async function loadConversations(navigateIfEmpty = true) {
+  void appBadge.refresh();
   const familyID = activeFamilyID;
   const [list, favorites, shoppingItems] = await Promise.all([
     request("/conversations"),
@@ -982,6 +987,8 @@ $("#logout").onclick = async () => {
   try {
   if (isNative) await disableNativePush();
   await request("/auth/logout", { method: "POST" });
+  currentUser=null;
+  await appBadge.clear();
   location.reload();
   } catch (_) { announce("Не удалось безопасно выйти. Проверьте соединение и повторите.","error"); }
 };
@@ -1209,6 +1216,8 @@ async function bootApp() {
     if (error.message !== "Требуется вход" && error.message !== "Сессия истекла") {
       $("#error").textContent = "Не удалось загрузить чат. Проверьте соединение и повторите попытку.";
       $("#retryStart").hidden = false;
+    } else {
+      currentUser=null;await appBadge.clear();
     }
   }
 }
@@ -1218,6 +1227,7 @@ function connectEvents() {
   const scheme = location.protocol === "https:" ? "wss" : "ws",
     socket = new WebSocket(serverOrigin ? `${serverOrigin.replace(/^https:/, "wss:")}/api/v1/events` : `${scheme}://${location.host}/api/v1/events`);
   socket.onopen = () => {
+    void appBadge.refresh();
     void receipts.deliver();
     void refreshStatuses();
     if (active && displayedConversation === active) scheduleMessageSync(active);
@@ -1325,4 +1335,4 @@ const groupUI=initGroups({request,locale:()=>userPreferences.locale||'ru',refres
 const interfamilyUI=initInterfamily({request,family:()=>activeFamily(families,activeFamilyID),locale:()=>userPreferences.locale||'ru',refresh:async()=>{await loadConversations(false);await syncActiveGroupAccess();},confirm:confirmAction});
 const familyIconButton=document.createElement('button');familyIconButton.id='familyChatIcon';familyIconButton.type='button';familyIconButton.className='menuAction';familyIconButton.hidden=true;familyIconButton.textContent=userPreferences.locale==='en'?'Family chat icon':'Пиктограмма семейного чата';$('#chatMoreMenu').append(familyIconButton);familyIconButton.onclick=()=>{const c=conversations.find(c=>c.id===active);if(c)groupUI.familyIcon(c);};
 const recoverGroupsButton=document.createElement('button');recoverGroupsButton.type='button';recoverGroupsButton.className='secondary';recoverGroupsButton.textContent='Восстановить владельца группы';$('#applicationAdminSections').append(recoverGroupsButton);recoverGroupsButton.onclick=()=>groupUI.recovery();
-initMessageActions({request,user:()=>currentUser,locale:()=>userPreferences.locale||'ru',onSent:()=>announce(userPreferences.locale==='en'?'Message forwarded':'Сообщение переслано')});
+initMessageActions({request,user:()=>currentUser,locale:()=>userPreferences.locale||'ru',getMessage:id=>displayedMessages.get(id),onReact:toggleMessageReaction,onMoreReactions:id=>{reactionTarget=id;$('#reactionPicker').hidden=false;},onChanged:scheduleMessageSync,confirm:confirmAction,onSent:()=>announce(userPreferences.locale==='en'?'Message forwarded':'Сообщение переслано')});

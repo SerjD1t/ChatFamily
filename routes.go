@@ -28,6 +28,7 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/attachments/{id}", a.auth(a.storageRead(a.downloadAttachment)))
 	mux.HandleFunc("GET /api/v1/attachments/{id}/preview", a.auth(a.storageRead(a.attachmentPreview)))
 	mux.HandleFunc("GET /api/v1/auth/me", a.auth(a.me))
+	mux.HandleFunc("GET /api/v1/me/unread", a.auth(a.unreadTotal))
 	mux.HandleFunc("PUT /api/v1/user/profile", a.auth(a.updateProfile))
 	mux.HandleFunc("GET /api/v1/mobile/push/config", a.auth(a.mobilePushConfig))
 	mux.HandleFunc("POST /api/v1/mobile/push/devices", a.limited(a.auth(a.saveMobileDevice)))

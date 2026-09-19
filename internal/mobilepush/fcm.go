@@ -63,15 +63,23 @@ func New(serviceAccount string) (*Client, error) {
 }
 
 // Send returns only a status and an invalid-token flag; provider bodies/tokens are never logged.
-func (c *Client) Send(ctx context.Context, token, uid, cid, kind string) (int, bool, error) {
+func (c *Client) Send(ctx context.Context, token, uid, cid, kind string, unread ...int) (int, bool, error) {
 	body := "Новое сообщение"
 	if kind == "reaction" {
 		body = "Новая реакция на сообщение"
 	}
+	notification := map[string]any{"channel_id": "chat_messages", "tag": "chat-unread"}
+	if kind == "reaction" {
+		notification["channel_id"] = "chat_reactions"
+		notification["tag"] = "reaction-" + cid
+	}
+	if len(unread) > 0 && unread[0] >= 0 {
+		notification["notification_count"] = unread[0]
+	}
 	payload, _ := json.Marshal(map[string]any{"message": map[string]any{
 		"token": token, "notification": map[string]string{"title": "ChatFamily", "body": body},
 		"data":    map[string]string{"conversationID": cid, "userID": uid, "kind": kind},
-		"android": map[string]any{"priority": "HIGH", "ttl": "300s", "notification": map[string]string{"channel_id": "chat_messages", "tag": "chat-" + cid}},
+		"android": map[string]any{"priority": "HIGH", "ttl": "300s", "notification": notification},
 	}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
 	if err != nil {

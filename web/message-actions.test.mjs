@@ -1,6 +1,21 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
 import {initMessageActions,messageActionsMarkup} from './message-actions.js';
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
+
+for(const own of [true,false])test(`touch actions: hold, movement, attachment tap, ownership ${own}`,{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<article class="message" data-message-id="m" data-deleted="false"><div class="bubble"><p class="messageBody">Synthetic</p><a class="attachmentCard" href="#file">File</a></div></article><textarea>Draft</textarea>');globalThis.document=dom.window.document;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true};
+ const article=document.querySelector('article'),body=document.querySelector('.messageBody');article.querySelector('.bubble').insertAdjacentHTML('beforeend',messageActionsMarkup({id:'m'}));
+ let reactions=[];initMessageActions({request:async()=>[],user:()=>({ID:'self'}),getMessage:()=>({id:'m',body:'Synthetic',authorId:own?'self':'other'}),onReact:(id,emoji)=>reactions.push([id,emoji])});
+ const pointer=(type,target=body,x=0)=>{const e=new dom.window.Event(type,{bubbles:true});Object.assign(e,{pointerType:'touch',pointerId:1,clientX:x,clientY:0});target.dispatchEvent(e)};
+ const wait=()=>new Promise(r=>setTimeout(r,540));
+ try{
+  pointer('pointerdown');pointer('pointermove',body,20);await wait();assert.equal(document.querySelector('dialog'),null);
+  pointer('pointerdown',document.querySelector('a'));pointer('pointerup');await wait();assert.equal(document.querySelector('dialog'),null);
+  pointer('pointerdown');await wait();const sheet=document.querySelector('dialog');assert.ok(sheet?.open);assert.equal(!!sheet.querySelector('[data-edit]'),own);assert.equal(!!sheet.querySelector('[data-delete]'),own);
+  sheet.querySelector('[data-quick]').click();assert.deepEqual(reactions,[['m','👍']]);assert.equal(document.querySelector('dialog'),null);assert.equal(document.querySelector('textarea').value,'Draft');assert.equal(document.querySelector('article'),article);
+ }finally{dom.window.close();delete globalThis.document}
+});
 test('forward picker confirms, keeps DOM, retries with same request and recipient',{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<article class="bubble"></article><textarea>Draft</textarea>');globalThis.document=dom.window.document;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new dom.window.Event('close'));};

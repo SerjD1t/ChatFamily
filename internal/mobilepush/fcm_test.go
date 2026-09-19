@@ -28,6 +28,12 @@ func TestSend(t *testing.T) {
 						Token        string
 						Data         map[string]string
 						Notification map[string]string
+						Android      struct {
+							Notification struct {
+								Count int `json:"notification_count"`
+								Tag   string
+							}
+						}
 					}
 				}
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -39,12 +45,15 @@ func TestSend(t *testing.T) {
 				if payload.Message.Notification["body"] != "Новое сообщение" {
 					t.Error("notification must use generic text")
 				}
+				if payload.Message.Android.Notification.Count != 7 || payload.Message.Android.Notification.Tag != "chat-unread" {
+					t.Error("absolute unread count and one notification required")
+				}
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.response))
 			}))
 			defer server.Close()
 			client := &Client{http: server.Client(), endpoint: server.URL}
-			status, invalid, err := client.Send(context.Background(), "test-token", "user", "conversation", "message")
+			status, invalid, err := client.Send(context.Background(), "test-token", "user", "conversation", "message", 7)
 			if err != nil || status != tc.status || invalid != tc.invalid {
 				t.Fatalf("unexpected result: status=%d invalid=%v err=%v", status, invalid, err)
 			}
