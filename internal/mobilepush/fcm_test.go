@@ -42,6 +42,9 @@ func TestSend(t *testing.T) {
 				if payload.Message.Token != "test-token" || payload.Message.Data["conversationID"] != "conversation" || payload.Message.Data["userID"] != "user" {
 					t.Error("invalid routing")
 				}
+				if payload.Message.Data["messageID"] != "message-target" {
+					t.Error("missing message target")
+				}
 				if payload.Message.Notification["body"] != "Новое сообщение" {
 					t.Error("notification must use generic text")
 				}
@@ -53,7 +56,7 @@ func TestSend(t *testing.T) {
 			}))
 			defer server.Close()
 			client := &Client{http: server.Client(), endpoint: server.URL}
-			status, invalid, err := client.Send(context.Background(), "test-token", "user", "conversation", "message", 7)
+			status, invalid, err := client.SendMessage(context.Background(), "test-token", "user", "conversation", "message", "message-target", 7)
 			if err != nil || status != tc.status || invalid != tc.invalid {
 				t.Fatalf("unexpected result: status=%d invalid=%v err=%v", status, invalid, err)
 			}

@@ -52,6 +52,7 @@ public class PushEnvironmentPlugin extends Plugin {
         result.put("installationId",id);
         result.put("bridgeVersion",4);
         result.put("appBadge",true);
+        result.put("familyWidget",true);
         result.put("deviceStorage",true);
         result.put("appUpdates",true);
         result.put("remoteInterface",true);

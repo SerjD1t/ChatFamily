@@ -2,6 +2,10 @@ import { syncMarkup } from './dom-sync.js';
 import { todayISO, formatShoppingDate } from './format.js';
 
 const mounted = new WeakMap();
+export async function openNeedsTarget(host,{itemId,createKind}) {
+ const ui=mounted.get(host);if(!ui?.root.isConnected)throw Error('Needs unavailable');
+ return ui.openTarget({itemId,createKind});
+}
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function filterNeeds(items, {query='',kind='',status='active',scope=''}={}) {
  const terms=query.trim().toLocaleLowerCase().replaceAll('ё','е').split(/\s+/).filter(Boolean);
@@ -241,5 +245,14 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
   }
   isCurrent=current;
  }
- mounted.set(host,{locale,root,update,context});render();
+ async function openTarget({itemId,createKind}){
+  if(!familyID||!isCurrent())throw Error('Family unavailable');
+  if(itemId){if(!source.some(n=>n.id===itemId&&n.familyId===familyID&&!n.ownerUserId))throw Error('Item unavailable');await openDetail(itemId);return;}
+  if(createKind==='task'||createKind==='purchase'){
+   // Keep the title draft; only make the explicit widget target and scope visible.
+   form.elements.createScope.value='family';form.elements.kind.value=createKind;
+   addButton.click();
+  }
+ }
+ mounted.set(host,{locale,root,update,context,openTarget});render();
 }

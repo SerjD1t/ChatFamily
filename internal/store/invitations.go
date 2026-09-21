@@ -126,6 +126,6 @@ func (p *Postgres) SetPassword(userID, newPassword string, minPasswordLength int
 	if err != nil {
 		return err
 	}
-	_, err = p.Pool.Exec(context.Background(), `UPDATE users SET password_hash=$1 WHERE id=$2`, string(newHash), userID)
+	_, err = p.Pool.Exec(context.Background(), `UPDATE users SET password_hash=$1,sessions_revoked_at=clock_timestamp() WHERE id=$2`, string(newHash), userID)
 	return err
 }

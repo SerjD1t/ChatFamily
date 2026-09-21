@@ -15,10 +15,19 @@ function refreshBadge(){
   return badgeWork;
 }
 self.addEventListener('push', event => {
-  const data = event.data ? event.data.json() : { title: 'Семейный чат', body: 'Новое сообщение' };
-  event.waitUntil(Promise.all([refreshBadge(),self.registration.showNotification(data.title || 'Семейный чат', { body: data.body || 'Новое сообщение', data })]));
+  let data={};try{data=event.data?.json()||{};}catch{}
+  event.waitUntil(Promise.all([refreshBadge(),self.registration.showNotification(data.title || 'ChatFamily', { body: data.body || 'Новое сообщение', icon:'/icon-indigo-192.png', badge:'/badge-dialog.png', data })]));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => windows[0] ? windows[0].focus() : clients.openWindow('/')));
+  const {conversationID,messageID}=event.notification.data||{};
+  if(typeof conversationID!=='string'||conversationID.length>200)return;
+  const target={conversationID,messageID:typeof messageID==='string'?messageID:''};
+  const url=new URL('/',self.location.origin);
+  url.hash=new URLSearchParams({conversation:target.conversationID,message:target.messageID}).toString();
+  event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(async windows=>{
+    const window=windows.find(w=>new URL(w.url).origin===self.location.origin);
+    if(window){await window.focus();window.postMessage({type:'notification.open',...target});}
+    else await clients.openWindow(url.href);
+  }));
 });

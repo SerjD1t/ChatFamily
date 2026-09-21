@@ -19,6 +19,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle state) {
         registerPlugin(IncomingSharePlugin.class);
         registerPlugin(PushEnvironmentPlugin.class);
+        registerPlugin(site.chatfamily.app.widget.FamilyWidgetPlugin.class);
         registerPlugin(site.chatfamily.app.update.AppUpdatePlugin.class);
         super.onCreate(state);
         // Do not retain Capacitor's legacy unrestricted JavaScript-interface fallback.
@@ -35,7 +36,7 @@ public class MainActivity extends BridgeActivity {
             }
             private boolean navigate(Uri uri, boolean mainFrame) {
                 if (mainFrame && ShellNavigation.internal(uri.toString())) return false;
-                if (mainFrame && "https".equals(uri.getScheme())) {
+                if (mainFrame && ShellNavigation.external(uri.toString())) {
                     try { startActivity(new Intent(Intent.ACTION_VIEW,uri).addCategory(Intent.CATEGORY_BROWSABLE)); }
                     catch(Exception ignored) { Toast.makeText(MainActivity.this,"Не удалось открыть ссылку",Toast.LENGTH_SHORT).show(); }
                 }
@@ -44,7 +45,7 @@ public class MainActivity extends BridgeActivity {
         });
         if(state==null) receive(getIntent());
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); receive(intent); }
+    @Override protected void onNewIntent(Intent intent) { setIntent(intent); super.onNewIntent(intent); receive(intent); }
     @Override public void onPause() { android.webkit.CookieManager.getInstance().flush(); super.onPause(); }
     private void receive(Intent intent) {
         if(intent==null || !(Intent.ACTION_SEND.equals(intent.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction()))) return;

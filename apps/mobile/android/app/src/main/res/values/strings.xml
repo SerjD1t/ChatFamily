@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">ChatFamily</string>
-    <string name="title_activity_main">ChatFamily</string>
-    <string name="package_name">site.chatfamily.app</string>
-    <string name="custom_url_scheme">site.chatfamily.app</string>
+    <string name="app_name" translatable="false">ChatFamily</string>
+    <string name="title_activity_main" translatable="false">ChatFamily</string>
+    <string name="package_name" translatable="false">site.chatfamily.app</string>
+    <string name="custom_url_scheme" translatable="false">site.chatfamily.app</string>
 </resources>

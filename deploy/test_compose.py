@@ -2,7 +2,7 @@ import contextlib
 import io
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, mock_open
 import compose
 
 
@@ -11,7 +11,8 @@ class ComposeTests(unittest.TestCase):
         settings = {'firebase': {'serviceAccount': {'type': 'service_account', 'project_id': 'synthetic'}},
                     'yandexDiskBackup': {'repositoryPassword': 'synthetic-backup-secret'}}
         with patch('sys.argv', ['compose.py', 'up', '-d']), \
-             patch.object(compose.Path, 'read_text', return_value=json.dumps(settings)), \
+             patch.object(compose.Path, 'open', mock_open(read_data=json.dumps(settings))), \
+             (patch('fcntl.flock') if compose.os.name == 'posix' else contextlib.nullcontext()), \
              patch.object(compose.Path, 'is_file', return_value=True), \
              patch.dict(compose.os.environ, {}, clear=True), \
              patch.object(compose.subprocess, 'run') as run:

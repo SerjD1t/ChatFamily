@@ -17,7 +17,11 @@ def main():
         return 2
     root = Path(__file__).resolve().parent.parent
     try:
-        settings = json.loads((root / 'settings.local.json').read_text(encoding='utf-8-sig'))
+        with (root / 'settings.local.json').open(encoding='utf-8-sig') as stream:
+            if os.name == 'posix':
+                import fcntl
+                fcntl.flock(stream, fcntl.LOCK_SH)
+            settings = json.load(stream)
         credentials = settings['firebase']['serviceAccount']
         if not isinstance(credentials, dict) or credentials.get('type') != 'service_account':
             raise ValueError()
@@ -26,6 +30,9 @@ def main():
         args = ['docker', 'compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.production.yml']
         if (root / 'deploy/backup/compose.backup.yml').is_file():
             args += ['-f', 'deploy/backup/compose.backup.yml']
+        # Keep verification fail-closed if the installed controller is down.
+        if Path('/etc/systemd/system/chatfamily-mail.service').is_file():
+            args += ['-f', 'deploy/mail/compose.mail.yml']
         return subprocess.run(args + sys.argv[1:], cwd=root, env=environment, check=False).returncode
     except Exception:
         print('Compose setup failed; check protected settings without printing them', file=sys.stderr)

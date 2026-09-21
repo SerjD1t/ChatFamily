@@ -2,6 +2,12 @@ package site.chatfamily.app;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class ShellNavigationTest {
+ @Test public void externalWebLinksNeverGrantBridgeAccess() {
+  for(String url:new String[]{"http://example.test/path","https://example.test/path"}) {
+   assertTrue(ShellNavigation.external(url));assertFalse(ShellNavigation.internal(url));
+  }
+  for(String url:new String[]{"javascript:alert(1)","intent://example","file:///data/private","content://private","https://user:pass@example.test/","//example.test/"})assertFalse(url,ShellNavigation.external(url));
+ }
  @Test public void onlyTrustedDocumentsStayInside() {
   assertTrue(ShellNavigation.internal("https://www.chatfamily.site/"));
   assertTrue(ShellNavigation.internal("https://www.chatfamily.site/?invite=code"));

@@ -180,6 +180,32 @@ func (a *app) register(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	policy, policyErr := a.mailPolicy(r.Context())
+	if policyErr != nil {
+		write(w, 503, map[string]string{"error": "Почтовый сервис недоступен / Mail service unavailable"})
+		return
+	}
+	if policy.VerifyRegistration {
+		if !policy.Enabled {
+			write(w, 503, map[string]string{"error": "Почта отключена / Mail disabled"})
+			return
+		}
+		if _, err := store.NormalizeEmail(in.Email); err != nil {
+			domainError(w, err)
+			return
+		}
+		if _, _, err := store.NormalizeUserNames(in.Name, in.LastName); err != nil {
+			domainError(w, err)
+			return
+		}
+		if _, err := a.emailLink("register", "check"); err != nil {
+			write(w, 503, map[string]string{"error": "Настройте HTTPS-адрес приложения / Configure application HTTPS URL"})
+			return
+		}
+		a.queueEmailAction(in.Email, "register", in.Name, in.LastName, "")
+		write(w, http.StatusAccepted, map[string]bool{"verificationRequired": true})
+		return
+	}
 	u, err := a.db.Register(in.Email, in.Name, in.Password, a.passwordMinLength(), in.LastName)
 	if err != nil {
 		domainError(w, err)
@@ -207,7 +233,7 @@ func (a *app) authenticate(email, password string) (string, bool) {
 		if user, ok := a.db.Authenticate(email, password); ok {
 			return user.ID, true
 		}
-		if !a.db.SessionAllowed("admin", time.Now()) {
+		if !a.db.BootstrapPasswordAllowed() {
 			return "", false
 		}
 	}
@@ -247,6 +273,7 @@ func (a *app) changePassword(w http.ResponseWriter, r *http.Request) {
 		domainError(w, err)
 		return
 	}
+	a.setSession(w, r, id(r))
 	w.WriteHeader(http.StatusNoContent)
 }
 func (a *app) createInvitation(w http.ResponseWriter, r *http.Request) {
@@ -288,8 +315,8 @@ func (a *app) createInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mailSent := true
-	if err := sendInvitationMail(a.cfg, in.Email, token, "семью", string(in.FamilyRole), in.Relationship); err != nil {
-		slog.Warn("не удалось отправить приглашение", "error", err)
+	if err := a.sendInvitation(r.Context(), in.Email, token, "семью", string(in.FamilyRole), in.Relationship); err != nil {
+		slog.Warn("не удалось отправить приглашение")
 		mailSent = false
 	}
 	write(w, http.StatusCreated, map[string]any{"token": token, "expiresAt": expiresAt.UTC(), "mailSent": mailSent})
@@ -305,6 +332,25 @@ func (a *app) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	policy, err := a.mailPolicy(r.Context())
+	if err != nil {
+		write(w, 503, map[string]string{"error": "Почтовый сервис недоступен"})
+		return
+	}
+	if policy.VerifyRegistration {
+		email, err := a.db.InvitationEmail(r.Context(), in.Token)
+		if err != nil {
+			domainError(w, err)
+			return
+		}
+		if _, _, err = store.NormalizeUserNames(in.Name, ""); err != nil {
+			domainError(w, err)
+			return
+		}
+		a.queueEmailAction(email, "register", in.Name, "", in.Token)
+		write(w, http.StatusAccepted, map[string]bool{"verificationRequired": true})
 		return
 	}
 	user, err := a.db.AcceptInvitation(in.Token, in.Name, in.Password, a.passwordMinLength())
@@ -668,6 +714,15 @@ func (a *app) messages(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	actor, conversationID := a.user(id(r)), r.PathValue("id")
+	if mid := r.URL.Query().Get("around"); mid != "" && a.db != nil {
+		out, err := a.db.MessagesAround(actor, conversationID, mid, limit)
+		if err != nil {
+			domainError(w, err)
+			return
+		}
+		write(w, http.StatusOK, out)
+		return
+	}
 	if paged, ok := a.chat.(chat.PagedBackend); ok {
 		out, err := paged.MessagesPage(actor, conversationID, r.URL.Query().Get("before"), limit)
 		if err != nil {
@@ -765,7 +820,7 @@ func (a *app) toggleReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if conversationID, err := a.db.ReactionConversation(a.user(id(r)), r.PathValue("id")); err == nil {
-		go a.notifyReaction(conversationID, id(r), a.user(id(r)).Name, in.Emoji)
+		go a.notifyReaction(conversationID, id(r), a.user(id(r)).Name, in.Emoji, r.PathValue("id"))
 		a.hub.publish(realtimeEvent{Type: "reaction.updated", ConversationID: conversationID, MessageID: r.PathValue("id")})
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -808,7 +863,7 @@ func write(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 func (a *app) sign(user string, until time.Time) string {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(user + "|" + until.UTC().Format(time.RFC3339)))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(user + "|" + until.UTC().Format(time.RFC3339Nano)))
 	mac := hmac.New(sha256.New, []byte(a.cfg.SessionSecret))
 	mac.Write([]byte(payload))
 	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))

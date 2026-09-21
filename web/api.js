@@ -13,10 +13,13 @@ export async function request(path, options = {}) {
       ...options,
     });
     if (!response.ok) {
+      if(response.status===401)document.dispatchEvent(new document.defaultView.Event('session-unauthorized'));
       const body = await response.json().catch(() => ({}));
       throw Error(body.error || "Ошибка запроса");
     }
-    return response.status === 204 ? null : resolveMedia(await response.json());
+    const result=response.status === 204 ? null : resolveMedia(await response.json());
+    if(options.method&&options.method!=='GET'&&/^\/families\/[^/]+\/(needs|shopping)(\/|$)/.test(path))document.dispatchEvent(new document.defaultView.Event('family-needs-updated'));
+    return result;
   } catch (error) {
     if (error.name === "AbortError")
       throw Error("Превышено время ожидания ответа");

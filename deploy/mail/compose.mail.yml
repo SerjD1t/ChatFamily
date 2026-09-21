@@ -1,0 +1,6 @@
+services:
+  app:
+    environment:
+      MAIL_CONTROL_SOCKET: /run/chatfamily-mail/control.sock
+    volumes:
+      - /run/chatfamily-mail:/run/chatfamily-mail:ro

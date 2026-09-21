@@ -212,7 +212,9 @@ main { min-height: 100dvh; }
 .message .bubble { max-width: min(86%, 58rem); padding: .65rem .8rem; border-radius: .9rem .9rem .9rem .28rem; background: var(--incoming); color: var(--text); }
 .message.own .bubble { border-radius: .9rem .9rem .28rem .9rem; background: var(--outgoing); color: var(--text); }
 .message.continued { padding-top: .05rem; }
-.message.continued .messageAuthor, .message.continued .messageAvatar { display: none; }
+.message.continued .messageAvatar { display: none; }
+.messageHeader { display:flex; align-items:center; flex-wrap:wrap; gap:.15rem .5rem; min-width:0; margin-bottom:.18rem; }
+.messageHeader .messageAuthor { min-width:0; overflow-wrap:anywhere; flex:1 1 auto; }
 .messageAuthor { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent !important; box-shadow: none !important; color: hsl(var(--author-hue) 48% 38%); font-size: .82rem; font-weight: 750; text-align: left; }
 html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); }
 .message p { margin: .22rem 0; white-space: pre-wrap; }
@@ -220,14 +222,16 @@ html[data-theme="dark"] .messageAuthor { color: hsl(var(--author-hue) 52% 72%); 
 .messageReply strong { color: var(--accent); font-size: .78rem; }
 .messageReply span { overflow: hidden; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .authorAvatar { width: 1.9rem; height: 1.9rem; border-radius: 50%; object-fit: cover; background: var(--surface-selected); }
-.messageAvatar { float: left; margin: .05rem .5rem .1rem 0; }
+.messageAvatar { flex:0 0 auto; width:1.5rem; height:1.5rem; margin:0; }
 .messageMeta { display: flex; align-items: center; justify-content: flex-end; gap: .32rem; color: var(--text-muted); font-size: .7rem; }
 .messageStatus { font-weight: 700; letter-spacing: -.16em; }
 .messageStatus.read { color: #168ac6; }
-.receiptInfo { display:inline-flex; align-items:center; gap:.35rem; min-height:2rem; padding:.2rem .3rem; border:0; background:transparent; color:var(--text-muted); font:inherit; }
+.receiptInfo { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-height:0; padding:0 .15rem; border:0; background:transparent; color:var(--text-muted); font:inherit; }
 .receiptInfo:hover { background:var(--surface-hover); }
 .receiptCount { letter-spacing:normal; }
-.messageMeta { flex-wrap:wrap; }
+.messageMeta { flex-wrap:wrap; margin-inline-start:auto; white-space:nowrap; }
+.messageMeta [data-status-id] { display:inline-flex; }
+.messageEdited { font-style:italic; }
 dialog.receiptDialog { width:min(32rem,calc(100vw - 2rem)); box-sizing:border-box; padding:1rem; overflow-y:auto; }
 .receiptDialog .muted { font-size:.85rem; }
 .receiptDialog ul { list-style:none; padding:0; }
@@ -236,7 +240,8 @@ dialog.receiptDialog { width:min(32rem,calc(100vw - 2rem)); box-sizing:border-bo
 .receiptDialog h4 { margin:1rem 0 .3rem; }
 .receiptDialog [data-error]:empty { display:none; }
 @media(max-width:600px) {
-  .receiptInfo { min-height:2.75rem; }
+  .messageHeader:has(.receiptInfo) { min-height:44px; }
+  .receiptInfo { min-height:44px; min-width:44px; }
   dialog.receiptDialog[open] { margin:auto 0 0; width:100%; max-width:100%; max-height:85dvh; border-radius:var(--radius-lg) var(--radius-lg) 0 0; padding-bottom:max(1rem,env(safe-area-inset-bottom)); }
 }
 .reactions { display: flex; flex-wrap: wrap; gap: .25rem; margin: .35rem 0; }
@@ -555,3 +560,11 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 .forwardRecipients button{background:var(--surface-muted);color:var(--text);text-align:left;overflow-wrap:anywhere}
 .forwardRecipients button[aria-pressed=true]{background:var(--surface-selected);outline:2px solid var(--accent);outline-offset:-2px}
 @media(max-width:600px){.mediaViewer{width:96vw;padding:8px}.mediaViewer header strong{flex-basis:100%}}
+.notificationTarget .bubble{outline:2px solid var(--accent);outline-offset:-2px}
+.messageLink{overflow-wrap:anywhere;text-decoration:underline}
+.linkPreview{display:grid;gap:4px;max-width:100%;margin-block:8px;padding:10px;border-inline-start:3px solid var(--accent);background:var(--surface-muted);color:var(--text);text-decoration:none;overflow-wrap:anywhere}
+.linkPreview span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.linkPreview small{color:var(--text-muted)}
+.mailDialog{width:min(500px,94vw);max-height:90dvh;overflow:auto;box-sizing:border-box}
+.mailDialog header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mailDialog input[type=checkbox]{width:auto;min-height:0}

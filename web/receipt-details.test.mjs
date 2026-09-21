@@ -10,6 +10,10 @@ test('group receipt button shows partial reading, direct chat keeps compact mark
  assert.match(receiptButton('one','sent',{read:1,total:3},true),/Прочитали 1 из 3/);
  assert.doesNotMatch(receiptButton('one','read',{read:1,total:1},false),/receiptCount/);
  assert.match(receiptButton('one','delivered',{read:0,total:3},true,'en'),/Read 0 of 3/);
+ document.body.innerHTML=receiptButton('one','read',{read:1,total:3},true);
+ assert.equal(document.querySelector('.receiptCount').textContent,'1/3');
+ assert.match(document.querySelector('button').getAttribute('aria-label'),/Прочитали 1 из 3/);
+ assert.equal(document.querySelector('.messageStatus').getAttribute('aria-hidden'),'true');
  assert.doesNotMatch(receiptButton('\"><img>','sent',null,true),/<img>/);
  }finally{dom.window.close();delete globalThis.document;}
 });

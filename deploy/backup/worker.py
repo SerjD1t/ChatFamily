@@ -126,6 +126,9 @@ def read_json(path, fallback=None):
             os.close(fd)
             raise Failure('invalid_json')
         with os.fdopen(fd, encoding='utf-8-sig') as handle:
+            if os.name == 'posix':
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_SH)
             return json.load(handle)
     except FileNotFoundError:
         return fallback

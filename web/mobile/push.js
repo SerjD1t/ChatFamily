@@ -1,7 +1,7 @@
 import { isNative, registerNativePlugin } from "./runtime.js";
 
 let state = null;
-export async function configureNativePush({ user, locale, request, announce, openConversation }) {
+export async function configureNativePush({ user, locale, request, announce, openConversation, openNotification }) {
   if (!isNative || state) return;
   const push = registerNativePlugin("PushNotifications"), environment = registerNativePlugin("PushEnvironment");
   const button = document.querySelector("#pushSettings");
@@ -17,7 +17,7 @@ export async function configureNativePush({ user, locale, request, announce, ope
       const chats = await request("/conversations");
       if (chats.some(c => c.id === data.conversationID)) {
         document.querySelectorAll("dialog[open]").forEach(d => d.close());
-        await openConversation(data.conversationID);
+        if(openNotification) await openNotification(data); else await openConversation(data.conversationID);
       }
     } catch (_) { announce(t("Не удалось открыть чат из уведомления", "Could not open the conversation"), "error"); }
   });

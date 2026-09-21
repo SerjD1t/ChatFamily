@@ -1,0 +1,21 @@
+[Unit]
+Description=ChatFamily host-only mail controller
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/chatfamily/deploy/mail/service.py
+WorkingDirectory=/opt/chatfamily
+Environment=MAIL_APP_GID=1000
+RuntimeDirectory=chatfamily-mail
+RuntimeDirectoryMode=0755
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/chatfamily/settings.local.json /run/chatfamily-mail
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

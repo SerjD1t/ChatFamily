@@ -64,6 +64,9 @@ func New(serviceAccount string) (*Client, error) {
 
 // Send returns only a status and an invalid-token flag; provider bodies/tokens are never logged.
 func (c *Client) Send(ctx context.Context, token, uid, cid, kind string, unread ...int) (int, bool, error) {
+	return c.SendMessage(ctx, token, uid, cid, kind, "", unread...)
+}
+func (c *Client) SendMessage(ctx context.Context, token, uid, cid, kind, mid string, unread ...int) (int, bool, error) {
 	body := "Новое сообщение"
 	if kind == "reaction" {
 		body = "Новая реакция на сообщение"
@@ -78,7 +81,7 @@ func (c *Client) Send(ctx context.Context, token, uid, cid, kind string, unread 
 	}
 	payload, _ := json.Marshal(map[string]any{"message": map[string]any{
 		"token": token, "notification": map[string]string{"title": "ChatFamily", "body": body},
-		"data":    map[string]string{"conversationID": cid, "userID": uid, "kind": kind},
+		"data":    map[string]string{"conversationID": cid, "userID": uid, "kind": kind, "messageID": mid},
 		"android": map[string]any{"priority": "HIGH", "ttl": "300s", "notification": notification},
 	}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))

@@ -1,4 +1,9 @@
 import { api, $, request, safe } from "./api.js";
+import { initNotificationNavigation } from './notification-navigation.js';
+import {linkMarkup,createLinkPreviews} from './links.js';
+import {initMail} from './mail.js';
+import {createEmailRetry} from './email-retry.js';
+const bindLinkPreviews=createLinkPreviews({request});
 import {createBadge, applyAppBadge} from './badge.js';
 import { bindClipboard } from "./clipboard.js";
 import { initMediaViewer } from "./media-viewer.js";
@@ -17,10 +22,11 @@ import { isNative, nativeCapabilities, serverOrigin, serverURL } from "./mobile/
 import { initIncomingShares } from "./mobile/incoming-share.js";
 import { initDeviceStorage } from "./mobile/device-storage.js";
 import { initAppUpdate } from "./mobile/app-update.js";
+import {initFamilyWidgets,clearFamilyWidgets,refreshFamilyWidgets} from './mobile/family-widget.js';
 import { initAutomations } from "./automations.js";
 import { configureNativePush, disableNativePush } from "./mobile/push.js";
 import { syncMarkup } from "./dom-sync.js";
-import { mountNeeds } from "./family-needs.js";
+import { mountNeeds,openNeedsTarget } from "./family-needs.js";
 import { initStorageAdmin } from "./storage-admin.js";
 import { initBackupAdmin } from "./backup-admin.js";
 import { initApplicationFamilies } from "./application-families.js";
@@ -47,10 +53,19 @@ let conversations = [],
   families = [],
   activeFamilyID = "";
 let editingApplicationUser = null;
+let emailVerificationRequired=false;
 const appBadge=createBadge({request,apply:applyAppBadge,user:()=>currentUser?.ID});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void appBadge.refresh();});
 window.addEventListener('online',()=>void appBadge.refresh());
-let displayedConversation = null, displayedMessages = new Map(), olderCursor = "";
+let displayedConversation = null, displayedMessages = new Map(), olderCursor = "", historyTarget="", appReady=false;
+const notificationNavigation=initNotificationNavigation({ready:()=>appReady&&!!currentUser,open:async ({conversationID,messageID},isCurrent)=>{
+  await loadConversations(false);
+  if(!isCurrent())return;
+  if(!conversations.some(c=>c.id===conversationID))throw Error('Unavailable');
+  document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
+  $('#messages').hidden=false;$('#onboarding').hidden=true;
+  await openConversation(conversationID,'',true,messageID);
+},onError:()=>announce(userPreferences.locale==='en'?'Message is unavailable or access has changed':'Сообщение недоступно или доступ к чату изменился','error')});
 const reactionRequests = new Map(), reactionWrites = new Set();
 let messageSyncTimer = null, messageSyncRunning = false, messageSyncAgain = false;
 const receipts = createReceipts({
@@ -279,13 +294,14 @@ function reactionAddButton(message) {
 function messageBodyMarkup(message) {
   if (message.deletedAt) return `<p class="messageBody">${tr("Сообщение удалено", userPreferences.locale)}</p>`;
   const { reply, body } = splitReplyBody(message.body);
-  return `${message.forwarded ? `<div class="forwardLabel" data-no-i18n>↪ ${userPreferences.locale==='en'?'Forwarded message':'Пересланное сообщение'}</div>` : ''}${reply ? `<blockquote class="messageReply" data-no-i18n><strong>${safe(reply.author)}</strong><span>${safe(reply.text)}</span></blockquote>` : ""}<p class="messageBody">${safe(body)}</p>`;
+  const link=linkMarkup(body);
+  return `${message.forwarded ? `<div class="forwardLabel" data-no-i18n>↪ ${userPreferences.locale==='en'?'Forwarded message':'Пересланное сообщение'}</div>` : ''}${reply ? `<blockquote class="messageReply" data-no-i18n><strong>${safe(reply.author)}</strong><span>${safe(reply.text)}</span></blockquote>` : ""}<p class="messageBody">${link.body}</p>${link.preview}`;
 }
 function openUserCard(userID, name, avatarURL) {
   $("#profileName").textContent = name || "Пользователь";
   $("#profileDetails").textContent = userID === currentUser?.ID ? "Это ваш профиль" : "Участник семейного чата";
   const image = $("#profileAvatar");
-  image.src = avatarURL || "/icon-1254.png";
+  image.src = avatarURL || "/icon-indigo-192.png";
   image.alt = `Фото: ${name || "пользователь"}`;
   $("#changeAvatar").hidden = userID !== currentUser?.ID;
   $("#openEditNames").hidden = userID !== currentUser?.ID;
@@ -304,6 +320,7 @@ function openUserCard(userID, name, avatarURL) {
   $("#passwordError").textContent = "";
   $("#profileDialog").showModal();
 }async function handleMessages(event) {
+  if(event.target.closest('[data-latest]')){await openConversation(active);return;}
   const info=event.target.closest('[data-receipt-info]');
   if(info){receiptDetails.open(info.dataset.receiptInfo,info);return;}
   const older = event.target.closest("[data-load-older]");
@@ -383,7 +400,11 @@ async function startDirect(userID) {
     $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
-async function openConversation(id, before = "", navigate = true) {
+async function openConversation(id, before = "", navigate = true, targetMessage = "") {
+  if(targetMessage || (navigate && !before) || active!==id){
+    if(targetMessage || historyTarget){displayedConversation=null;displayedMessages=new Map();}
+    historyTarget=targetMessage;
+  }
   if(active!==id)receiptDetails.close();
   const refreshing = active === id && displayedConversation === id && $("#messages").dataset.conversationId === id;
   const scroller = $("#messages"), oldHeight = scroller.scrollHeight;
@@ -427,24 +448,32 @@ async function openConversation(id, before = "", navigate = true) {
   if (!refreshing) $("#chatMoreMenu").hidden = true;
   if (!refreshing) $("#messages").innerHTML = loadingMarkup();
   try {
-    const page = await request(`/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ""}`);
+    const page = await request(`/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : historyTarget ? `&around=${encodeURIComponent(historyTarget)}` : ""}`);
     if (version !== loadVersion || id !== active) return;
     if (displayedConversation !== id) { displayedMessages = new Map(); olderCursor = ""; displayedConversation = id; }
-    if (!refreshing || before) olderCursor = page.nextBefore || "";
+    if (!refreshing || before || targetMessage) olderCursor = page.nextBefore || "";
     for (const message of page.messages || []) displayedMessages.set(message.id, {...message,receiptSummary:displayedMessages.get(message.id)?.receiptSummary});
     const list = [...displayedMessages.values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt) || a.id.localeCompare(b.id));
-    const messageHTML =
+    const messageHTML = (historyTarget?`<button class="secondary" data-latest>${userPreferences.locale==='en'?'Latest messages':'К последним сообщениям'}</button>`:'')+
       (olderCursor ? `<button class="secondary loadOlder" data-load-older="${safe(olderCursor)}">Показать более ранние сообщения</button>` : "") +
       groupMessageEntries(list).map(({ message: m, continued, startsDay }) =>
-          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button>${messageBodyMarkup(m)}${m.deletedAt ? '' : attachmentMarkup(m.attachments, userPreferences.locale)}${m.deletedAt ? "" : reactionButtons(m)}<small class="messageMeta">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}${m.editedAt ? ` · ${tr("изменено", userPreferences.locale)}` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent",m.id)}</span>` : ""}${m.deletedAt ? "" : reactionAddButton(m)}</small></div></article>`)
+          `${startsDay ? `<div class="dateDivider"><span>${safe(formatDayLabel(m.createdAt, userPreferences.locale))}</span></div>` : ""}<article data-message-id="${safe(m.id)}" data-author-id="${safe(m.authorId)}" data-deleted="${!!m.deletedAt}" class="message ${m.authorId === currentUser.ID ? "own" : ""} ${continued ? "continued" : ""}"><div class="bubble"><div class="messageHeader">${m.authorAvatarUrl ? `<img class="authorAvatar messageAvatar" src="${safe(m.authorAvatarUrl)}" alt="">` : ""}<button class="messageAuthor" data-user-id="${safe(m.authorId)}" data-avatar-url="${safe(m.authorAvatarUrl || "")}" data-user-name="${safe(m.authorName)}" style="--author-hue:${authorHue(m.authorName)}">${safe(m.authorName)}</button><small class="messageMeta"><time datetime="${safe(m.createdAt)}" title="${safe(new Date(m.createdAt).toLocaleString(userPreferences.locale))}">${safe(formatMessageTime(m.createdAt, userPreferences.locale))}</time>${m.editedAt ? `<span class="messageEdited">${tr("изменено", userPreferences.locale)}</span>` : ""}${m.authorId === currentUser.ID ? `<span data-status-id="${safe(m.id)}">${messageStatus(m.status || "sent",m.id)}</span>` : ""}</small></div>${messageBodyMarkup(m)}${m.deletedAt ? '' : attachmentMarkup(m.attachments, userPreferences.locale)}${m.deletedAt ? "" : reactionButtons(m)}${m.deletedAt ? "" : reactionAddButton(m)}</div></article>`)
         .join("") || '<p class="muted">Сообщений пока нет.</p>';
     const currentScroll = scroller.scrollTop;
     const currentlyAtBottom = scroller.scrollHeight - scroller.clientHeight - currentScroll < 60;
     syncMarkup(scroller, messageHTML);
     bindAttachmentFallback(scroller);
+    bindLinkPreviews(scroller);
+    if(isNative)scroller.querySelectorAll('.messageLink,.linkPreview').forEach(link=>link.target='_self');
     scroller.dataset.conversationId = id;
     $("#messages").onclick = handleMessages;
     scroller.scrollTop = before && refreshing ? currentScroll + scroller.scrollHeight - oldHeight : !refreshing || currentlyAtBottom ? scroller.scrollHeight : currentScroll;
+    if(targetMessage){
+      const target=scroller.querySelector(`[data-message-id="${CSS.escape(targetMessage)}"]`);
+      if(!target)throw Error(userPreferences.locale==='en'?'Message not found':'Сообщение не найдено');
+      target.scrollIntoView({block:'center'});target.classList.add('notificationTarget');
+      setTimeout(()=>target.classList.remove('notificationTarget'),5000);
+    }
     void receipts.deliver();
     void refreshStatuses();
   } catch (e) {
@@ -603,12 +632,15 @@ async function startApp() {
 const openUserLifecycle = initUserLifecycle({request,locale:()=>userPreferences.locale,onChanged:()=>openApplicationUsers(),announce});
 const openStorageAdmin = initStorageAdmin({request,locale:()=>userPreferences.locale,confirmAction});
 const openBackupAdmin = initBackupAdmin({request,locale:()=>userPreferences.locale,confirmAction});
+const mailUI=initMail({request,locale:()=>userPreferences.locale,policyChanged:policy=>{emailVerificationRequired=!!policy.verifyRegistration;}});
 const openApplicationFamilies = initApplicationFamilies({request,locale:()=>userPreferences.locale,confirmAction});
 async function openAdmin() {
   try {
     const settings = await request("/application/settings");
     $("#minPasswordLength").value = settings.minPasswordLength;
     $("#applicationSettingsError").textContent = "";
+    if(!$('#openMailAdmin')){const button=document.createElement('button');button.id='openMailAdmin';button.type='button';button.className='secondary';button.dataset.noI18n='';button.onclick=mailUI.openAdmin;$('#applicationAdminSections').append(button);}
+    $('#openMailAdmin').textContent=userPreferences.locale==='en'?'Email and verification':'Почта и подтверждения';
     if (!$("#openStorageAdmin")) {
       const button=document.createElement('button');button.id='openStorageAdmin';button.type='button';button.className='secondary';button.onclick=openStorageAdmin;button.setAttribute('data-no-i18n','');
       $("#applicationAdminSections").append(button);
@@ -778,7 +810,7 @@ async function configurePush() {
       $("#pushSettings").onclick = () => announce("Для уведомлений обновите приложение Android", "error");
       return;
     }
-    await configureNativePush({user:currentUser,locale:()=>userPreferences.locale,request,announce,openConversation});
+    await configureNativePush({user:currentUser,locale:()=>userPreferences.locale,request,announce,openConversation,openNotification:notificationNavigation.receive});
     return;
   }
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
@@ -985,6 +1017,7 @@ $("#familyForm").onsubmit = async (e) => {
 };
 $("#logout").onclick = async () => {
   try {
+  await clearFamilyWidgets();
   if (isNative) await disableNativePush();
   await request("/auth/logout", { method: "POST" });
   currentUser=null;
@@ -1068,12 +1101,18 @@ $("#joinExistingInvite").onclick = () => {
 $("#closeAcceptInvite").onclick = () => $("#acceptInviteDialog").close();
 $("#openRegister").onclick = () => $("#registerDialog").showModal();
 $("#closeRegister").onclick = () => $("#registerDialog").close();
+const registerRetry=createEmailRetry($("#registerForm"),{locale:()=>userPreferences.locale});
+const inviteRetry=createEmailRetry($("#acceptInvite"),{locale:()=>userPreferences.locale});
 $("#registerForm").onsubmit = async (event) => {
   event.preventDefault();
+  if(!registerRetry.begin())return;
+  let emailRequested=false;
   try {
-    await request("/auth/register", { method:"POST", body:JSON.stringify({email:$("#registerEmail").value.trim(),name:$("#registerName").value.trim(),lastName:$("#registerLastName").value.trim(),password:$("#registerPassword").value}) });
+    const result=await request("/auth/register", { method:"POST", body:JSON.stringify({email:$("#registerEmail").value.trim(),name:$("#registerName").value.trim(),lastName:$("#registerLastName").value.trim(),password:$("#registerPassword").value}) });
+    if(result.verificationRequired){emailRequested=true;$('#registerPassword').value='';$('#registerError').textContent=userPreferences.locale==='en'?'If this address is available, a confirmation link will be sent. Open it to set your password. Check spam too. You can resend in one minute.':'Если адрес свободен, придёт ссылка подтверждения. Откройте её, чтобы задать пароль. Проверьте также спам. Повторить отправку можно через минуту.';return;}
     location.reload();
   } catch (error) { $("#registerError").textContent = error.message; }
+  finally {registerRetry.finish(emailRequested);}
 };
 
 $("#acceptInvite").onsubmit = async (event) => {
@@ -1083,19 +1122,22 @@ $("#acceptInvite").onsubmit = async (event) => {
   const password = $("#invitePassword").value;
   const passwordRepeat = $("#invitePasswordRepeat").value;
   const error = $("#acceptInviteError");
-  if (password !== passwordRepeat) {
+  if (!emailVerificationRequired && password !== passwordRepeat) {
     error.textContent = "Пароли не совпадают";
     return;
   }
-  if (password.length < minPasswordLength) {
+  if (!emailVerificationRequired && password.length < minPasswordLength) {
     error.textContent = `Пароль должен содержать не менее ${minPasswordLength} символов`;
     return;
   }
+  if(!inviteRetry.begin())return;
+  let emailRequested=false;
   try {
     const user = await request("/invitations/accept", {
       method: "POST",
       body: JSON.stringify({ token, name, password }),
     });
+    if(user.verificationRequired){emailRequested=true;$('#invitePassword').value='';$('#invitePasswordRepeat').value='';error.textContent=userPreferences.locale==='en'?'A confirmation link will be sent to the invited email address. You can resend in one minute.':'Ссылка подтверждения будет отправлена на адрес из приглашения. Повторить отправку можно через минуту.';return;}
     $("#acceptInviteDialog").close();
     $("#loginForm").reset();
     $("#email").value = user.Email || "";
@@ -1103,7 +1145,7 @@ $("#acceptInvite").onsubmit = async (event) => {
     $("#password").focus();
   } catch (requestError) {
     error.textContent = requestError.message;
-  }
+  } finally {inviteRetry.finish(emailRequested);}
 };
 $("#attach").onclick = () => {
   $("#attachmentFiles").click();
@@ -1202,6 +1244,7 @@ async function bootApp() {
   $("#retryStart").hidden = true;
   try {
     await startApp();
+    appReady=true;
     connectEvents();
     if (invitationFromLink) {
       try {
@@ -1212,6 +1255,19 @@ async function bootApp() {
       } catch (error) { console.warn("Приглашение ожидает создания аккаунта", error); }
     }
     await configurePush();
+    await notificationNavigation.flush();
+    await initFamilyWidgets({user:currentUser.ID,open:async target=>{
+      const available=await request('/families');
+      if(!available.some(f=>f.id===target.familyId))throw Error('Family unavailable');
+      document.querySelectorAll('dialog[open]').forEach(d=>d.close());
+      if(activeFamilyID!==target.familyId){
+        const selector=$('#familySelect');
+        if(![...selector.options].some(o=>o.value===target.familyId))throw Error('Reload required');
+        selector.value=target.familyId;await selector.onchange();
+      }
+      await openShopping(true);
+      await openNeedsTarget($('#messages'),{itemId:target.action==='item'?target.itemId:'',createKind:target.action});
+    },onError:()=>announce(userPreferences.locale==='en'?'Widget item is unavailable. Refresh the widget.':'Запись виджета недоступна. Обновите виджет.','error')});
   } catch (error) {
     if (error.message !== "Требуется вход" && error.message !== "Сессия истекла") {
       $("#error").textContent = "Не удалось загрузить чат. Проверьте соединение и повторите попытку.";
@@ -1251,6 +1307,7 @@ function connectEvents() {
         return;
       }
 
+      if(event.type==='shopping.changed')refreshFamilyWidgets();
       if (event.type === "shopping.changed" && active === shoppingID) {
         await openShopping();
         return;

@@ -1,0 +1,5 @@
+<resources>
+ <color name="widget_background">#20212D</color><color name="widget_border">#46485E</color>
+ <color name="widget_text">#F1F2FC</color><color name="widget_muted">#C0C2D4</color>
+ <color name="widget_accent">#C2C3FF</color><color name="widget_overdue">#FFAAAA</color>
+</resources>

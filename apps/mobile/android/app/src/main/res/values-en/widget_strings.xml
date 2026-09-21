@@ -1,0 +1,14 @@
+<resources>
+ <string name="widget_name">Family today</string><string name="widget_tasks">Tasks</string><string name="widget_purchases">Purchases</string>
+ <string name="widget_tasks_count">Tasks: today %1$d · overdue %2$d</string><string name="widget_purchases_count">To buy: %1$d</string>
+ <string name="widget_add_task">＋ Task</string><string name="widget_add_purchase">＋ Purchase</string>
+ <string name="widget_refresh">Refresh</string><string name="widget_settings">Configure widget</string>
+ <string name="widget_sign_in">Open ChatFamily and sign in, then configure the widget via ⋯</string>
+ <string name="widget_choose_family">Choose a family via ⋯</string><string name="widget_access_lost">No access to this family</string>
+ <string name="widget_server_update">ChatFamily server needs updating</string><string name="widget_no_data">No recent data. Tap refresh.</string>
+ <string name="widget_updated">Updated %1$s</string><string name="widget_saved">Saved summary</string><string name="widget_today">Today</string>
+ <string name="widget_loading">Loading families…</string><string name="widget_config_error">Could not load settings. Check sign-in and connectivity, then reopen settings.</string>
+ <string name="widget_no_family">Create or join a family in ChatFamily first.</string>
+ <string name="widget_privacy">Task and purchase titles will be visible on your home screen. The selected family is pinned to this widget only.</string>
+ <string name="widget_mine">Only tasks assigned to me</string><string name="widget_all_purchases">Purchases: all incomplete items in the selected family.</string><string name="widget_save">Save widget</string>
+</resources>

@@ -1,0 +1,14 @@
+<resources>
+ <string name="widget_name">Семья сегодня</string><string name="widget_tasks">Дела</string><string name="widget_purchases">Покупки</string>
+ <string name="widget_tasks_count">Дела: сегодня %1$d · просрочено %2$d</string><string name="widget_purchases_count">Купить: %1$d</string>
+ <string name="widget_add_task">＋ Дело</string><string name="widget_add_purchase">＋ Покупка</string>
+ <string name="widget_refresh">Обновить</string><string name="widget_settings">Настроить виджет</string>
+ <string name="widget_sign_in">Откройте ChatFamily и войдите, затем настройте виджет через ⋯</string>
+ <string name="widget_choose_family">Выберите семью через ⋯</string><string name="widget_access_lost">Нет доступа к выбранной семье</string>
+ <string name="widget_server_update">Необходимо обновить сервер ChatFamily</string><string name="widget_no_data">Нет свежих данных. Нажмите обновить.</string>
+ <string name="widget_updated">Обновлено %1$s</string><string name="widget_saved">Сохранённая сводка</string><string name="widget_today">Сегодня</string>
+ <string name="widget_loading">Загрузка семей…</string><string name="widget_config_error">Не удалось загрузить настройки. Проверьте вход и сеть, откройте настройки заново.</string>
+ <string name="widget_no_family">Сначала создайте семью или вступите в неё в ChatFamily.</string>
+ <string name="widget_privacy">Названия дел и покупок будут видны на рабочем столе. Семья закрепляется только за этим виджетом.</string>
+ <string name="widget_mine">Только дела, назначенные мне</string><string name="widget_all_purchases">Покупки — все невыполненные в выбранной семье.</string><string name="widget_save">Сохранить виджет</string>
+</resources>

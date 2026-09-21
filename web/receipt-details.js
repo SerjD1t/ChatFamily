@@ -4,8 +4,9 @@ const safe=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt
 export function receiptButton(id,status,summary,group,locale='ru') {
  const en=locale==='en',labels=en?{sent:'Sent',delivered:'Delivered to all',read:'Read by all'}:{sent:'Отправлено',delivered:'Доставлено всем',read:'Прочитано всеми'};
  const state=['sent','delivered','read'].includes(status)?status:'sent';
- const count=group&&summary?`<span class="receiptCount">${en?'Read':'Прочитали'} ${summary.read} ${en?'of':'из'} ${summary.total}</span>`:'';
- return `<button type="button" class="receiptInfo" data-no-i18n data-receipt-info="${safe(id)}" aria-label="${en?'Message information':'Информация о сообщении'}" title="${labels[state]}"><span class="messageStatus ${state}">${state==='sent'?'✓':'✓✓'}</span>${count}</button>`;
+ const description=group&&summary?`${en?'Read':'Прочитали'} ${summary.read} ${en?'of':'из'} ${summary.total}`:labels[state];
+ const count=group&&summary?`<span class="receiptCount" aria-hidden="true">${safe(summary.read)}/${safe(summary.total)}</span>`:'';
+ return `<button type="button" class="receiptInfo" data-no-i18n data-receipt-info="${safe(id)}" aria-label="${safe(description)}. ${en?'Message information':'Информация о сообщении'}" title="${safe(description)}"><span aria-hidden="true" class="messageStatus ${state}">${state==='sent'?'✓':'✓✓'}</span>${count}</button>`;
 }
 
 export function createReceiptDetails({request,locale=()=> 'ru'}) {

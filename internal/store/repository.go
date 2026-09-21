@@ -571,6 +571,17 @@ func unique(a []string) []string {
 func id() string { b := make([]byte, 16); rand.Read(b); return hex.EncodeToString(b) }
 
 // MessagesPage returns a bounded, chronological page ending before the supplied message ID.
+func (p *Postgres) MessagesAround(a chat.User, cid, mid string, limit int) (chat.MessagePage, error) {
+	if !p.member(cid, a.ID) {
+		return chat.MessagePage{}, chat.ErrForbidden
+	}
+	var before string
+	err := p.Pool.QueryRow(context.Background(), `SELECT COALESCE((SELECT n.id FROM messages n WHERE n.conversation_id=m.conversation_id AND (n.created_at,n.id)>(m.created_at,m.id) ORDER BY n.created_at,n.id LIMIT 1),'') FROM messages m WHERE m.id=$1 AND m.conversation_id=$2`, mid, cid).Scan(&before)
+	if err != nil {
+		return chat.MessagePage{}, chat.ErrNotFound
+	}
+	return p.MessagesPage(a, cid, before, limit)
+}
 func (p *Postgres) MessagesPage(a chat.User, cid, before string, limit int) (chat.MessagePage, error) {
 	if !p.member(cid, a.ID) {
 		return chat.MessagePage{}, chat.ErrForbidden

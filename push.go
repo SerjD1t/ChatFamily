@@ -13,7 +13,7 @@ import (
 )
 
 func (a *app) notifyMessage(message chat.Message) {
-	go a.notifyMobile(message.ConversationID, message.AuthorID, "message")
+	go a.notifyMobile(message.ConversationID, message.AuthorID, "message", message.ID)
 	if a.db == nil || a.cfg.VAPIDPublicKey == "" || a.cfg.VAPIDPrivateKey == "" {
 		return
 	}
@@ -22,14 +22,7 @@ func (a *app) notifyMessage(message chat.Message) {
 		slog.Error("push subscriptions", "error_type", fmt.Sprintf("%T", err))
 		return
 	}
-	title := "Чат"
-	for _, conversation := range a.chat.Conversations(message.AuthorID) {
-		if conversation.ID == message.ConversationID {
-			title = conversation.Title
-			break
-		}
-	}
-	payload, _ := json.Marshal(map[string]string{"title": title, "body": message.AuthorName + ": " + message.Body, "conversationID": message.ConversationID})
+	payload, _ := json.Marshal(messageNotification(message, a.chat.Conversations(message.AuthorID)))
 	for _, subscription := range subscriptions {
 		response, err := webpush.SendNotification(payload, &subscription, a.pushOptions())
 		if response != nil {
@@ -44,11 +37,33 @@ func (a *app) notifyMessage(message chat.Message) {
 		}
 	}
 }
-func (a *app) notifyReaction(conversationID, actorID, author, emoji string) {
+func messageNotification(message chat.Message, conversations []chat.Conversation) map[string]string {
+	title := message.AuthorName
+	for _, conversation := range conversations {
+		if conversation.ID == message.ConversationID {
+			if conversation.Kind != "direct" {
+				title += " · " + conversation.Title
+			}
+			break
+		}
+	}
+	body := message.Body
+	if body == "" && len(message.Attachments) > 0 {
+		body = "Вложение"
+	}
+	if text := []rune(body); len(text) > 180 {
+		body = string(text[:180]) + "…"
+	}
+	if text := []rune(title); len(text) > 100 {
+		title = string(text[:100]) + "…"
+	}
+	return map[string]string{"title": title, "body": body, "conversationID": message.ConversationID, "messageID": message.ID}
+}
+func (a *app) notifyReaction(conversationID, actorID, author, emoji string, messageID ...string) {
 	if actorID == "" {
 		return
 	}
-	go a.notifyMobile(conversationID, actorID, "reaction")
+	go a.notifyMobile(conversationID, actorID, "reaction", messageID...)
 	if a.db == nil || a.cfg.VAPIDPublicKey == "" || a.cfg.VAPIDPrivateKey == "" {
 		return
 	}
@@ -56,7 +71,11 @@ func (a *app) notifyReaction(conversationID, actorID, author, emoji string) {
 	if err != nil {
 		return
 	}
-	payload, _ := json.Marshal(map[string]string{"title": "Новая реакция", "body": author + " отреагировал(а): " + emoji, "conversationID": conversationID})
+	mid := ""
+	if len(messageID) > 0 {
+		mid = messageID[0]
+	}
+	payload, _ := json.Marshal(map[string]string{"title": "Новая реакция", "body": author + " отреагировал(а): " + emoji, "conversationID": conversationID, "messageID": mid})
 	for _, subscription := range subscriptions {
 		response, err := webpush.SendNotification(payload, &subscription, a.pushOptions())
 		if response != nil {

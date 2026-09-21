@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {filterNeeds,mountNeeds} from './family-needs.js';
+import {filterNeeds,mountNeeds,openNeedsTarget} from './family-needs.js';
 import {summarizeShopping} from './family-context.js';
 const items=[
  {id:'1',title:'Хлеб',kind:'purchase',plannedDate:'2026-09-16T00:00:00Z',version:1},
@@ -20,6 +20,22 @@ test('counters exclude completed, archived and undated from today/overdue',()=>{
  assert.deepEqual(summarizeShopping(items,new Date(2026,8,16,12)),{plannedToday:1,overdue:1,total:3});
 });
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
+
+test('widget target opens only current family cards and explicit family creation',{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;globalThis.window=dom.window;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
+ try{
+  const host=document.querySelector('main');const item={id:'widget-item',familyId:'f1',kind:'task',title:'Synthetic task',version:1};
+  mountNeeds({host,familyID:'f1',items:[item,{id:'private',ownerUserId:'self',title:'Private'}],request:async()=>({item,members:[],activity:[],canEdit:true}),refresh:async()=>{},announce:()=>{}});
+  await openNeedsTarget(host,{itemId:'widget-item'});assert.ok(host.querySelector('.needDialog[open]'));
+  await assert.rejects(openNeedsTarget(host,{itemId:'private'}));
+  await assert.rejects(openNeedsTarget(host,{itemId:'missing'}));
+  await openNeedsTarget(host,{createKind:'purchase'});
+  assert.equal(host.querySelector('[name=createScope]').value,'family');
+  assert.equal(host.querySelector('[name=kind]:checked').value,'purchase');
+ }finally{dom.window.close();delete globalThis.document;delete globalThis.window;}
+});
 
 for(const locale of ['ru','en'])test(`quick date and assignee preserve card, draft and versions (${locale})`,{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;globalThis.window=dom.window;

@@ -42,7 +42,7 @@ func (a *app) deleteMobileDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-func (a *app) notifyMobile(cid, excluded, kind string) {
+func (a *app) notifyMobile(cid, excluded, kind string, messageID ...string) {
 	if a.fcm == nil || a.db == nil {
 		return
 	}
@@ -59,7 +59,11 @@ func (a *app) notifyMobile(cid, excluded, kind string) {
 		if countErr == nil {
 			counts = []int{count}
 		}
-		status, invalid, err := a.fcm.Send(ctx, device.Token, device.UserID, cid, kind, counts...)
+		mid := ""
+		if len(messageID) > 0 {
+			mid = messageID[0]
+		}
+		status, invalid, err := a.fcm.SendMessage(ctx, device.Token, device.UserID, cid, kind, mid, counts...)
 		if invalid {
 			_ = a.db.RemoveInvalidMobileToken(ctx, device.Token)
 		}
