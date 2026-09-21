@@ -1,4 +1,5 @@
 import { api, $, request, safe } from "./api.js";
+import {createPresence} from './presence.js';
 import { initNotificationNavigation } from './notification-navigation.js';
 import {linkMarkup,createLinkPreviews} from './links.js';
 import {initMail} from './mail.js';
@@ -55,6 +56,7 @@ let conversations = [],
 let editingApplicationUser = null;
 let emailVerificationRequired=false;
 const appBadge=createBadge({request,apply:applyAppBadge,user:()=>currentUser?.ID});
+const presence=createPresence({request,user:()=>currentUser?.ID,locale:()=>userPreferences.locale,peer:()=>conversations.find(c=>c.id===active&&c.kind==='direct')?.peerUserId});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void appBadge.refresh();});
 window.addEventListener('online',()=>void appBadge.refresh());
 let displayedConversation = null, displayedMessages = new Map(), olderCursor = "", historyTarget="", appReady=false;
@@ -286,7 +288,7 @@ function messageStatus(status,id) {
   return `<div class="reactions" data-reactions-id="${safe(message.id)}">${reactions}</div>`;
 }
 function contactMarkup({ id, name, subtitle = "", preview = "", time = "", unread = 0, self = false, group = false }) {
-  return `<button class="personalContact" ${group ? `data-group-id="${safe(id)}"` : `data-user-id="${safe(id)}"`}><span class="conversationAvatar" aria-hidden="true">${safe(initials(name))}</span><span class="personalContactContent"><span class="personalContactTitle">${safe(name)}${self ? ` <span class="selfBadge">${tr("Вы", userPreferences.locale)}</span>` : ""}</span><span class="personalContactPreview">${safe(preview || subtitle)}</span></span><span class="contactMeta">${time ? `<span>${safe(time)}</span>` : ""}${unread ? `<b class="unread">${unread}</b>` : ""}</span></button>`;
+  return `<button class="personalContact" ${group ? `data-group-id="${safe(id)}"` : `data-user-id="${safe(id)}"`}><span class="conversationAvatar" aria-hidden="true">${safe(initials(name))}</span><span class="personalContactContent"><span class="personalContactTitle">${safe(name)}${self ? ` <span class="selfBadge">${tr("Вы", userPreferences.locale)}</span>` : ""}</span><span class="personalContactPreview">${safe(preview || subtitle)}</span>${group?'':`<small class="presenceLabel" data-no-i18n data-presence-user="${safe(id)}"></small>`}</span><span class="contactMeta">${time ? `<span>${safe(time)}</span>` : ""}${unread ? `<b class="unread">${unread}</b>` : ""}</span></button>`;
 }
 function reactionAddButton(message) {
   return messageActionsMarkup(message,userPreferences.locale);
@@ -360,6 +362,7 @@ async function openPersonal() {
               isSelf = u.ID === currentUser.ID;
             return contactMarkup({ id: u.ID, name: u.Name, self: isSelf, subtitle: u.familyRelationship || "Неопределено", preview: chat?.lastMessage, time: formatConversationTime(chat?.lastMessageAt, userPreferences.locale), unread });
           }});
+    void presence.refresh();
     $("#messages").onclick = (e) => {
       const item = e.target.closest("[data-user-id]");
       if (item) startDirect(item.dataset.userId);
@@ -430,6 +433,7 @@ async function openConversation(id, before = "", navigate = true, targetMessage 
     isFavorite = c?.kind === "group" && favoriteIDs.has(id);
   $("#chatTitle").textContent = (c?.kind==='family'?activeFamily(families,c.familyId)?.title:c?.title) || c?.title || "Диалог";
   $("#chatSubtitle").textContent = c?.kind === "direct" ? "Личный диалог" : activeFamily(families, c?.familyId)?.title || "";
+  void presence.refresh();
   const canManageGroup = c?.kind==='group' ? managesGroup(c) : c?.familyId === activeFamilyID && canManageFamily(families, activeFamilyID);
   $("#manageMembers").hidden = c?.kind !== "group";
   $("#deleteGroup").hidden = c?.kind !== "group" || c?.groupRole !== 'owner';
@@ -1245,6 +1249,7 @@ async function bootApp() {
   try {
     await startApp();
     appReady=true;
+    presence.start();
     connectEvents();
     if (invitationFromLink) {
       try {

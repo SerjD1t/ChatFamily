@@ -22,6 +22,8 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/auth/change-password", a.limited(a.auth(a.changePassword)))
 	mux.HandleFunc("GET /api/v1/password-policy", a.passwordPolicy)
 	mux.HandleFunc("GET /api/v1/events", a.auth(a.events))
+	mux.HandleFunc("POST /api/v1/me/activity", a.auth(a.presence))
+	mux.HandleFunc("POST /api/v1/presence", a.auth(a.presence))
 	mux.HandleFunc("POST /api/v1/message-receipts", a.auth(a.receipts))
 	mux.HandleFunc("GET /api/v1/pending-deliveries", a.auth(a.pendingDeliveries))
 	mux.HandleFunc("POST /api/v1/message-statuses", a.auth(a.receiptStatuses))

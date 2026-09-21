@@ -179,13 +179,15 @@ main { min-height: 100dvh; }
 .conversationContent { grid-area: content; min-width: 0; }
 .conversationTitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .conversationPreview { display: block; overflow: hidden; margin-top: .1rem; color: var(--text-muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.presenceLabel { display:block; color:var(--text-muted); font-size:.75rem; }
+.presenceOnline::before { content:'●'; margin-right:.3em; color:var(--accent); }
 .conversationMeta { grid-area: meta; display: grid; justify-items: end; align-self: stretch; align-content: center; gap: .2rem; }
 .conversationTime { color: var(--text-muted); font-size: .7rem; }
 .unread { min-width: 1.35rem; padding: .05rem .4rem; border-radius: 1rem; background: var(--accent); color: var(--accent-text); font-size: .72rem; text-align: center; }
 .newGroupButton { width: 100%; margin-top: .5rem; }
 .sidebarFooter { margin-top: .45rem; border-top: 1px solid var(--border); padding-top: .4rem; }
 
-.chat { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; min-width: 0; height: 100dvh; padding: 0 clamp(1rem, 3vw, 2.25rem); background: var(--surface); }
+.chat { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; min-width: 0; height: 100dvh; padding: 0 clamp(16px, 2vw, 24px); background: var(--surface); }
 /* Do not let the implicit grid column grow to header/textarea min-content width. */
 .chat > * { min-width: 0; max-width: 100%; }
 .message .bubble { min-width: 0; overflow-wrap: anywhere; }
@@ -200,7 +202,7 @@ main { min-height: 100dvh; }
 .actionMenu { top: calc(100% + .35rem); right: 0; }
 .sendMenu { right: 1rem; bottom: 5.25rem; }
 .menuAction { width: 100%; min-height: 2.45rem; padding: .55rem .7rem; background: transparent; color: var(--text); text-align: left; }
-#messages { width: min(100%, 78rem); min-height: 0; margin: 0 auto; padding: 1rem 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+#messages { width: 100%; min-height: 0; margin: 0; padding: 1rem 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .loadingState { display: grid; gap: .6rem; max-width: 30rem; margin: 2rem auto; }
 .skeleton { height: 3.8rem; border-radius: var(--radius-md); background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted)); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
 @keyframes shimmer { to { background-position: -200% 0; } }
@@ -250,11 +252,11 @@ dialog.receiptDialog { width:min(32rem,calc(100vw - 2rem)); box-sizing:border-bo
 .reaction.reacted { border-color: var(--accent); background: var(--surface-selected); }
 .reactionAdd { margin-left: auto; }
 .loadOlder { display: block; margin: 0 auto 1rem; }
-.composer { display: flex; width: min(100%, 78rem); align-items: end; gap: .55rem; margin: 0 auto; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+.composer { display: flex; width: 100%; align-items: end; gap: .55rem; margin: 0; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
 .composer textarea { flex: 1 1 0; min-width: 0; min-height: 2.75rem; margin: 0; padding-block: .66rem; }
 .sendButton { flex: 0 0 2.75rem; width: 2.75rem; padding: .35rem; font-size: 0; }
 .sendButton::before { content: "➤"; font-size: 1.15rem; }
-.replyPreview, .attachmentList { width: min(100%, 78rem); margin: 0 auto; padding: .45rem .7rem; border-left: 3px solid var(--accent); background: var(--surface-muted); color: var(--text-muted); font-size: .8rem; }
+.replyPreview, .attachmentList { width: 100%; margin: 0; padding: .45rem .7rem; border-left: 3px solid var(--accent); background: var(--surface-muted); color: var(--text-muted); font-size: .8rem; }
 .replyPreview { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
 .replyPreviewCopy { display: grid; min-width: 0; gap: .08rem; }
 .replyPreviewCopy small { color: var(--accent); font-weight: 700; }
@@ -359,7 +361,7 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 }
 
 @media (min-width: 768px) {
-  .message .bubble { min-width: min(20rem, 62vw); }
+  .message .bubble { min-width: min(20rem, 86%); }
 }
 
 @media (max-width: 767px) {
