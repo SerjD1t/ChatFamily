@@ -32,18 +32,24 @@ export function initMail({request,locale,policyChanged}){
    <label>TLS<select name="tls"><option value="starttls">STARTTLS</option><option value="tls">TLS</option></select></label>
    <label>${t('Логин','Username')}<input name="username" autocomplete="off"></label>
    <label>${t('Пароль (пусто — не менять)','Password (blank to keep)')}<input name="password" type="password" autocomplete="new-password"></label>
-   <label><input name="clearPassword" type="checkbox">${t('Очистить сохранённый пароль','Clear saved password')}</label>
+   <label class="mailToggle"><input name="clearPassword" type="checkbox"><span>${t('Очистить сохранённый пароль','Clear saved password')}</span></label>
    <label>${t('Адрес отправителя','Sender email')}<input name="from" type="email" required></label>
-   <label><input name="enabled" type="checkbox">${t('Включить письма и восстановление пароля','Enable email and password recovery')}</label>
-   <label><input name="verifyRegistration" type="checkbox">${t('Подтверждать почту при регистрации','Verify email during registration')}</label>
+   <label class="mailToggle"><input name="enabled" type="checkbox"><span>${t('Включить письма и восстановление пароля','Enable email and password recovery')}</span></label>
+   <label class="mailToggle"><input name="verifyRegistration" type="checkbox"><span>${t('Подтверждать почту при регистрации','Verify email during registration')}</span></label>
    <p data-status></p><div class="actions"><button>${t('Сохранить','Save')}</button><button type="button" data-test class="secondary">${t('Отправить тест мне','Send me a test')}</button></div>`);
   const fill=data=>{for(const name of ['host','port','tls','username','from'])form.elements[name].value=data[name]??'';for(const name of ['enabled','verifyRegistration'])form.elements[name].checked=!!data[name];form.elements.password.value='';form.elements.clearPassword.checked=false;form.querySelector('[data-status]').textContent=t('Проверка: ','Test: ')+(data.tested?t('SMTP принял тестовое письмо','SMTP accepted the test message'):t('ещё не выполнена','not completed'))+(data.passwordConfigured?t(' · пароль сохранён',' · password saved'):'')+(data.lastStatus==='failed'?t(' · последняя отправка не удалась',' · last delivery failed'):'');};
-  let dirty=false;
-  form.addEventListener('input',()=>{dirty=true;});
-  form.addEventListener('change',()=>{dirty=true;});
-  busy(form,true);try{fill(await request('/application/mail'));busy(form,false);}catch(error){form.querySelector('[data-error]').textContent=error.message;form.querySelector('[data-close]').disabled=false;return}
-  form.onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(form));for(const key of ['enabled','verifyRegistration','clearPassword'])data[key]=form.elements[key].checked;data.port=Number(data.port);busy(form,true);try{fill(await request('/application/mail',{method:'PUT',body:JSON.stringify(data)}));dirty=false;form.querySelector('[data-error]').textContent=t('Сохранено','Saved');await refreshPolicy();}catch(error){form.querySelector('[data-error]').textContent=error.message;}finally{form.elements.password.value='';busy(form,false)}};
-  form.querySelector('[data-test]').onclick=async()=>{if(dirty){form.querySelector('[data-error]').textContent=t('Сначала сохраните изменённые параметры.','Save your changes first.');return}busy(form,true);try{fill(await request('/application/mail',{method:'POST'}));form.querySelector('[data-error]').textContent=t('Проверьте свой почтовый ящик. После получения письма можно включить отправку.','Check your inbox. Enable delivery after receiving the message.');}catch(error){form.querySelector('[data-error]').textContent=error.message;}finally{busy(form,false)}};
+  // Compare values, not event history: browsers may dispatch a delayed change
+  // after save/blur or an input event without changing a field. Never retain a
+  // password in the baseline; a nonempty password is always an unsaved change.
+  const snapshot=()=>JSON.stringify([
+   ...['host','port','tls','username','from'].map(key=>form.elements[key].value),
+   ...['enabled','verifyRegistration'].map(key=>form.elements[key].checked),
+  ]);
+  let saved='';
+  const dirty=()=>snapshot()!==saved||!!form.elements.password.value||form.elements.clearPassword.checked;
+  busy(form,true);try{fill(await request('/application/mail'));saved=snapshot();busy(form,false);}catch(error){form.querySelector('[data-error]').textContent=error.message;form.querySelector('[data-close]').disabled=false;return}
+  form.onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(form));for(const key of ['enabled','verifyRegistration','clearPassword'])data[key]=form.elements[key].checked;data.port=Number(data.port);busy(form,true);try{fill(await request('/application/mail',{method:'PUT',body:JSON.stringify(data)}));saved=snapshot();form.querySelector('[data-error]').textContent=t('Сохранено','Saved');await refreshPolicy();}catch(error){form.querySelector('[data-error]').textContent=error.message;}finally{form.elements.password.value='';busy(form,false)}};
+  form.querySelector('[data-test]').onclick=async()=>{if(dirty()){form.querySelector('[data-error]').textContent=t('Сначала сохраните изменённые параметры.','Save your changes first.');return}busy(form,true);try{fill(await request('/application/mail',{method:'POST'}));saved=snapshot();form.querySelector('[data-error]').textContent=t('Проверьте свой почтовый ящик. После получения письма можно включить отправку.','Check your inbox. Enable delivery after receiving the message.');}catch(error){form.querySelector('[data-error]').textContent=error.message;}finally{busy(form,false)}};
  }
  return {openAdmin};
 }

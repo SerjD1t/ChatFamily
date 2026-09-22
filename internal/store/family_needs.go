@@ -14,15 +14,18 @@ import (
 var ErrNeedConflict = errors.New("запись уже изменена; откройте её заново")
 
 type NeedInput struct {
-	Title          *string `json:"title"`
-	Kind           *string `json:"kind"`
-	Description    *string `json:"description"`
-	PlannedDate    *string `json:"plannedDate"`
-	AssigneeID     *string `json:"assigneeId"`
-	Completed      *bool   `json:"completed"`
-	Archived       *bool   `json:"archived"`
-	Version        *int64  `json:"version"`
-	TargetFamilyID *string `json:"targetFamilyId"`
+	Checklist       *[]chat.ChecklistItem `json:"checklist"`
+	ChecklistSource *string               `json:"checklistSource"`
+	CheckItem       *chat.ChecklistItem   `json:"checkItem"`
+	Title           *string               `json:"title"`
+	Kind            *string               `json:"kind"`
+	Description     *string               `json:"description"`
+	PlannedDate     *string               `json:"plannedDate"`
+	AssigneeID      *string               `json:"assigneeId"`
+	Completed       *bool                 `json:"completed"`
+	Archived        *bool                 `json:"archived"`
+	Version         *int64                `json:"version"`
+	TargetFamilyID  *string               `json:"targetFamilyId"`
 }
 
 type NeedActivity struct {
@@ -42,11 +45,11 @@ type NeedMember struct {
 
 const needColumns = `s.id,COALESCE(s.family_id,''),s.title,s.planned_date,s.completed_at,s.created_by,s.created_at,s.kind,s.description,s.assignee_id,s.archived_at,s.version,
  COALESCE((SELECT display_name FROM users WHERE id=s.assignee_id),''),
- (SELECT count(*) FROM family_need_activity WHERE item_id=s.id AND action='comment'),s.owner_user_id`
+ (SELECT count(*) FROM family_need_activity WHERE item_id=s.id AND action='comment'),s.owner_user_id,s.checklist`
 
 func scanNeed(row pgx.Row) (chat.ShoppingItem, error) {
 	var n chat.ShoppingItem
-	err := row.Scan(&n.ID, &n.FamilyID, &n.Title, &n.PlannedDate, &n.CompletedAt, &n.CreatedBy, &n.CreatedAt, &n.Kind, &n.Description, &n.AssigneeID, &n.ArchivedAt, &n.Version, &n.AssigneeName, &n.CommentCount, &n.OwnerUserID)
+	err := row.Scan(&n.ID, &n.FamilyID, &n.Title, &n.PlannedDate, &n.CompletedAt, &n.CreatedBy, &n.CreatedAt, &n.Kind, &n.Description, &n.AssigneeID, &n.ArchivedAt, &n.Version, &n.AssigneeName, &n.CommentCount, &n.OwnerUserID, &n.Checklist)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = chat.ErrNotFound
 	}
@@ -181,8 +184,9 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 			return n, ErrNeedConflict
 		}
 		copy := n
+		copy.Checklist = append([]chat.ChecklistItem(nil), n.Checklist...)
 		before = &copy
-		editing := in.Title != nil || in.Kind != nil || in.Description != nil || in.PlannedDate != nil || in.AssigneeID != nil || in.Archived != nil
+		editing := in.Checklist != nil || in.Title != nil || in.Kind != nil || in.Description != nil || in.PlannedDate != nil || in.AssigneeID != nil || in.Archived != nil
 		if editing && n.CreatedBy != actor.ID && role != "admin" && role != "owner" {
 			return n, chat.ErrForbidden
 		}
@@ -201,6 +205,9 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 	}
 	if n.Title == "" || len([]rune(n.Title)) > 160 || len([]rune(n.Description)) > 4000 || (n.Kind != "purchase" && n.Kind != "task") {
 		return n, chat.ErrInvalid
+	}
+	if err = applyChecklist(&n, in, creating); err != nil {
+		return n, err
 	}
 	if in.PlannedDate != nil {
 		n.PlannedDate = nil
@@ -288,7 +295,35 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 	if err != nil {
 		return n, err
 	}
+	if in.Checklist != nil || in.CheckItem != nil {
+		checklist := n.Checklist
+		if checklist == nil {
+			checklist = []chat.ChecklistItem{}
+		}
+		_, err = tx.Exec(ctx, `UPDATE shopping_items SET checklist=$2 WHERE id=$1`, n.ID, checklist)
+		if err != nil {
+			return n, err
+		}
+	}
 	action := "edited"
+	body := ""
+	if in.Checklist != nil {
+		action = "checklist_edited"
+	}
+	if in.ChecklistSource != nil {
+		action = "checklist_created"
+		original := n
+		if before != nil {
+			original = *before
+		}
+		body = strings.TrimSpace(original.Description)
+		if body == "" {
+			body = original.Title
+		}
+	}
+	if in.CheckItem != nil {
+		action = "checklist_checked"
+	}
 	if creating {
 		action = "created"
 	} else if in.Archived != nil {
@@ -305,7 +340,7 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 		}
 	}
 	afterJSON, _ = json.Marshal(n)
-	_, err = tx.Exec(ctx, `INSERT INTO family_need_activity(item_id,actor_id,action,before_state,after_state) VALUES($1,$2,$3,$4,$5)`, n.ID, actor.ID, action, oldJSON, afterJSON)
+	_, err = tx.Exec(ctx, `INSERT INTO family_need_activity(item_id,actor_id,action,before_state,after_state,body) VALUES($1,$2,$3,$4,$5,$6)`, n.ID, actor.ID, action, oldJSON, afterJSON, body)
 	if err != nil {
 		return n, err
 	}

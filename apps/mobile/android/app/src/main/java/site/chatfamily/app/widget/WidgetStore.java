@@ -10,6 +10,7 @@ public final class WidgetStore {
  private static SharedPreferences prefs(Context c){return c.getSharedPreferences("family-widgets",Context.MODE_PRIVATE);}
  public static synchronized String user(Context c){return prefs(c).getString("user","");}
  public static synchronized long epoch(Context c){return prefs(c).getLong("epoch",0);}
+ static synchronized long advance(Context c){long next=epoch(c)+1;prefs(c).edit().putLong("epoch",next).commit();return next;}
  public static synchronized void session(Context c,String user){
   if(user.equals(user(c)))return;
   long next=epoch(c)+1;
@@ -17,9 +18,10 @@ public final class WidgetStore {
  }
  public static synchronized boolean clearIfCurrent(Context c,long expectedEpoch){if(epoch(c)!=expectedEpoch)return false;session(c,"");return true;}
  public static synchronized JSONObject config(Context c,int id){try{return new JSONObject(prefs(c).getString("config-"+id,"{}"));}catch(Exception e){return new JSONObject();}}
- public static synchronized void configure(Context c,int id,String family,boolean mine,String owner)throws Exception {
+ public static synchronized void configure(Context c,int id,String family,boolean mine,boolean chats,org.json.JSONArray pins,String owner)throws Exception {
   if(!owner.equals(user(c))||owner.isEmpty())throw new IllegalStateException();
-  JSONObject value=new JSONObject().put("family",family).put("mine",mine).put("owner",owner);
+  if(pins.length()>3)throw new IllegalArgumentException();
+  JSONObject value=new JSONObject().put("family",family).put("mine",mine).put("chats",chats).put("pins",pins).put("owner",owner);
   prefs(c).edit().putLong("epoch",epoch(c)+1).putString("config-"+id,value.toString()).remove("data-"+id).remove("error-"+id).commit();
  }
  public static synchronized JSONObject data(Context c,int id){try{

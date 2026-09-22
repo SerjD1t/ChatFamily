@@ -61,22 +61,29 @@ type UserPreferences struct {
 	ColorScheme  string `json:"colorScheme"`
 }
 
+type ChecklistItem struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	Completed bool   `json:"completed"`
+}
+
 type ShoppingItem struct {
-	OwnerUserID  *string    `json:"ownerUserId,omitempty"`
-	Kind         string     `json:"kind"`
-	Description  string     `json:"description"`
-	AssigneeID   *string    `json:"assigneeId,omitempty"`
-	AssigneeName string     `json:"assigneeName"`
-	ArchivedAt   *time.Time `json:"archivedAt,omitempty"`
-	Version      int64      `json:"version"`
-	CommentCount int        `json:"commentCount"`
-	ID           string     `json:"id"`
-	FamilyID     string     `json:"familyId"`
-	Title        string     `json:"title"`
-	PlannedDate  *time.Time `json:"plannedDate,omitempty"`
-	CompletedAt  *time.Time `json:"completedAt,omitempty"`
-	CreatedBy    string     `json:"createdBy"`
-	CreatedAt    time.Time  `json:"createdAt"`
+	Checklist    []ChecklistItem `json:"checklist,omitempty"`
+	OwnerUserID  *string         `json:"ownerUserId,omitempty"`
+	Kind         string          `json:"kind"`
+	Description  string          `json:"description"`
+	AssigneeID   *string         `json:"assigneeId,omitempty"`
+	AssigneeName string          `json:"assigneeName"`
+	ArchivedAt   *time.Time      `json:"archivedAt,omitempty"`
+	Version      int64           `json:"version"`
+	CommentCount int             `json:"commentCount"`
+	ID           string          `json:"id"`
+	FamilyID     string          `json:"familyId"`
+	Title        string          `json:"title"`
+	PlannedDate  *time.Time      `json:"plannedDate,omitempty"`
+	CompletedAt  *time.Time      `json:"completedAt,omitempty"`
+	CreatedBy    string          `json:"createdBy"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
 type ConversationKind string
 

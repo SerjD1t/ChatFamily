@@ -25,6 +25,14 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 	if err = p.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	cleanup := func() {
+		_, e := p.Pool.Exec(ctx, `DELETE FROM shopping_items WHERE created_by IN ('widget_member','widget_admin');DELETE FROM families WHERE id='widget_family';DELETE FROM users WHERE id IN ('widget_member','widget_admin')`)
+		if e != nil {
+			t.Error("widget fixture cleanup", e)
+		}
+	}
+	cleanup()
+	defer cleanup()
 	_, err = p.Pool.Exec(ctx, `INSERT INTO users(id,email,display_name,password_hash,permissions) VALUES
  ('widget_member','widget-member@example.test','Member','',ARRAY[]::text[]),
  ('widget_admin','widget-admin@example.test','Admin','',ARRAY['manage_application']);
@@ -33,9 +41,10 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer p.Pool.Exec(ctx, `DELETE FROM families WHERE id='widget_family';DELETE FROM users WHERE id IN ('widget_member','widget_admin')`)
 	title, kind, description := "Family purchase", "purchase", "private description not for widget"
-	if _, err = p.SaveNeed(chat.User{ID: "widget_member"}, "widget_family", "", store.NeedInput{Title: &title, Kind: &kind, Description: &description}); err != nil {
+	checklist := []chat.ChecklistItem{{Text: "Bread"}}
+	purchase, err := p.SaveNeed(chat.User{ID: "widget_member"}, "widget_family", "", store.NeedInput{Title: &title, Kind: &kind, Description: &description, Checklist: &checklist})
+	if err != nil {
 		t.Fatal(err)
 	}
 	title = "Personal secret"
@@ -43,6 +52,7 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := testApp()
+	a.hub = &hub{}
 	a.db = p
 	a.chat = p
 	call := func(actor, query, expected string) *httptest.ResponseRecorder {
@@ -79,6 +89,39 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 	}
 	if call("widget_member", "?familyId=widget_family&timezone=Invalid/Timezone", "widget_member").Code != 400 {
 		t.Fatal("invalid timezone accepted")
+	}
+	selected := call("widget_member", query+"&pins="+purchase.ID+"&configure=true", "widget_member")
+	var pinResponse struct {
+		Pinned    []widgetPin  `json:"pinned"`
+		Purchases []widgetItem `json:"purchases"`
+	}
+	if selected.Code != 200 || json.Unmarshal(selected.Body.Bytes(), &pinResponse) != nil || len(pinResponse.Pinned) != 1 || len(pinResponse.Purchases) != 1 || len(pinResponse.Pinned[0].Checklist) != 1 {
+		t.Fatal("pinned selection")
+	}
+	if strings.Contains(selected.Body.String(), description) || strings.Contains(selected.Body.String(), "Personal secret") {
+		t.Fatal("private fields in pins")
+	}
+	if call("widget_member", query+"&pins=a,b,c,d", "widget_member").Code != 400 {
+		t.Fatal("unbounded pins")
+	}
+	patch := func(expected string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PATCH", "/api/v1/families/widget_family/needs/"+purchase.ID, strings.NewReader(`{"version":1,"checkItem":{"id":"`+purchase.Checklist[0].ID+`","completed":true}}`))
+		r.SetPathValue("familyID", "widget_family")
+		r.SetPathValue("itemID", purchase.ID)
+		r.Header.Set("X-Expected-User", expected)
+		r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, "widget_member"))
+		w := httptest.NewRecorder()
+		a.needs(w, r)
+		return w
+	}
+	if patch("widget_admin").Code != 403 {
+		t.Fatal("mutation must bind account")
+	}
+	if patch("widget_member").Code != 200 {
+		t.Fatal("widget check failed")
+	}
+	if patch("widget_member").Code != 409 {
+		t.Fatal("stale widget check accepted")
 	}
 	if _, err = p.Pool.Exec(ctx, `DELETE FROM family_members WHERE family_id='widget_family' AND user_id='widget_member'`); err != nil {
 		t.Fatal(err)

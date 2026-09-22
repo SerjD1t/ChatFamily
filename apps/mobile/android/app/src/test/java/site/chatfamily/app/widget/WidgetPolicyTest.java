@@ -4,6 +4,25 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class WidgetPolicyTest {
+    @Test public void checklistActionsRejectStaleAccountConfigurationAndVersion() {
+        assertTrue(WidgetPolicy.acceptsAction("a","a",4,4,2,2));
+        assertFalse(WidgetPolicy.acceptsAction("a","b",4,4,2,2));
+        assertFalse(WidgetPolicy.acceptsAction("a","a",3,4,2,2));
+        assertFalse(WidgetPolicy.acceptsAction("a","a",4,4,1,2));
+        assertFalse(WidgetPolicy.acceptsAction("a","a",4,4,0,0));
+        assertFalse(WidgetPolicy.acceptsAction(null,"a",4,4,2,2));
+    }
+    @Test public void configurationDiscoversAccountWithoutWebBridge() {
+        assertTrue(WidgetPolicy.acceptsAccount("", "user-1", true, "session-a", "session-a"));
+        assertTrue(WidgetPolicy.acceptsAccount("old-user", "user-1", true, "session-a", "session-a"));
+        assertFalse(WidgetPolicy.acceptsAccount("", "", true, "session-a", "session-a"));
+    }
+    @Test public void backgroundRequestsRemainAccountBound() {
+        assertTrue(WidgetPolicy.acceptsAccount("user-1", "user-1", false, "session-a", "session-a"));
+        assertFalse(WidgetPolicy.acceptsAccount("user-1", "user-2", false, "session-a", "session-a"));
+        assertFalse(WidgetPolicy.acceptsAccount("user-1", "user-1", false, "session-a", null));
+        assertFalse(WidgetPolicy.acceptsAccount("", "user-1", true, "session-a", "session-b"));
+    }
     @Test public void cacheExpiresAndRejectsFutureTimestamps() {
         assertTrue(WidgetPolicy.fresh(1_000, 2_000));
         assertFalse(WidgetPolicy.fresh(0, 2_000));

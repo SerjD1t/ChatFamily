@@ -570,3 +570,14 @@ dialog::backdrop { background: rgb(10 20 15 / 48%); backdrop-filter: blur(2px); 
 .mailDialog{width:min(500px,94vw);max-height:90dvh;overflow:auto;box-sizing:border-box}
 .mailDialog header{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .mailDialog input[type=checkbox]{width:auto;min-height:0}
+.mailDialog .mailToggle{display:flex;align-items:flex-start;gap:.6rem;min-height:44px;cursor:pointer;}
+.mailDialog .mailToggle input{flex:0 0 auto;margin:.2em 0 0;padding:0;}
+.mailDialog .mailToggle span{min-width:0;overflow-wrap:anywhere;}
+/* Checklist controls stay compact without shrinking touch targets. */
+.needChecklist { margin-block: .75rem; }
+.needChecklist .needCheckRow { display:flex; align-items:center; gap:.6rem; min-height:44px; margin:0; }
+.needChecklist .needCheckRow input[type=checkbox] { flex:0 0 auto; width:20px; height:20px; margin:0; }
+.needChecklist .needCheckRow input[type=text] { flex:1; min-width:0; }
+.needChecklist .needCheckRow span { overflow-wrap:anywhere; }
+.needChecklist button { margin:.25rem .25rem .25rem 0; }
+.needCheckDraft { max-height:40vh; overflow-y:auto; }

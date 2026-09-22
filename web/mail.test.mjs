@@ -10,9 +10,18 @@ for(const locale of ['ru','en'])test(`mail admin hides secrets, test and recover
   const article=document.querySelector('article');await ui.openAdmin();let form=document.querySelector('dialog form');assert.equal(form.elements.password.value,'');assert.ok(form.textContent.includes('SMTP'));
   form.elements.password.value='synthetic-new-password';form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await new Promise(r=>setTimeout(r,0));
   assert.equal(JSON.parse(calls.find(c=>c.method==='PUT').body).password,'synthetic-new-password');assert.equal(form.elements.password.value,'');
+  // Delayed browser change/autofill notifications with unchanged values must
+  // not mark a saved form dirty forever.
+  form.elements.username.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  form.elements.password.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
   form.querySelector('[data-test]').click();await new Promise(r=>setTimeout(r,0));assert.ok(calls.some(c=>c.path==='/application/mail'&&c.method==='POST'));
   const testsSent=calls.filter(c=>c.path==='/application/mail'&&c.method==='POST').length;
   form.elements.host.value='changed.example.test';form.elements.host.dispatchEvent(new dom.window.Event('input',{bubbles:true}));form.querySelector('[data-test]').click();await new Promise(r=>setTimeout(r,0));assert.equal(calls.filter(c=>c.path==='/application/mail'&&c.method==='POST').length,testsSent);
+  form.elements.host.value=config.host;
+  form.querySelector('[data-test]').click();await new Promise(r=>setTimeout(r,0));assert.equal(calls.filter(c=>c.path==='/application/mail'&&c.method==='POST').length,testsSent+1,'reverted edit is clean');
+  form.elements.password.value='synthetic-unsaved';form.querySelector('[data-test]').click();await new Promise(r=>setTimeout(r,0));assert.equal(calls.filter(c=>c.path==='/application/mail'&&c.method==='POST').length,testsSent+1,'password without input event still blocks test');
+  form.elements.password.value='';form.elements.clearPassword.checked=true;form.querySelector('[data-test]').click();await new Promise(r=>setTimeout(r,0));assert.equal(calls.filter(c=>c.path==='/application/mail'&&c.method==='POST').length,testsSent+1);
+  assert.equal(form.querySelectorAll('label.mailToggle > input[type=checkbox] + span').length,3);
   form.querySelector('[data-close]').click();document.querySelector('.loginAlternatives button').click();form=document.querySelector('dialog form');form.elements.email.value='unknown@example.test';form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await new Promise(r=>setTimeout(r,0));assert.ok(form.querySelector('[data-error]').textContent);
   assert.equal(document.querySelector('article'),article);assert.equal(document.querySelector('textarea').value,'Draft');
  }finally{dom.window.close();for(const name of ['document','location','history','FormData'])delete globalThis[name];}

@@ -12,6 +12,10 @@ func (a *app) needs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := a.user(id(r))
+	if expected := r.Header.Get("X-Expected-User"); expected != "" && expected != actor.ID {
+		write(w, http.StatusForbidden, map[string]string{"error": "Account changed"})
+		return
+	}
 	familyID, itemID := r.PathValue("familyID"), r.PathValue("itemID")
 	var result any
 	var err error

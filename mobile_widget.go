@@ -4,6 +4,7 @@ import (
 	"familychat/internal/chat"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 	_ "time/tzdata"
 )
@@ -14,6 +15,28 @@ type widgetItem struct {
 	Date     string `json:"date"`
 	Assignee string `json:"assignee"`
 }
+
+type widgetChat struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Unread int64  `json:"unread"`
+}
+
+func widgetUnreadChats(chats []chat.Conversation) ([]widgetChat, int64) {
+	result := []widgetChat{}
+	var total int64
+	for _, c := range chats {
+		if c.UnreadCount <= 0 {
+			continue
+		}
+		total += c.UnreadCount
+		if len(result) < 4 {
+			result = append(result, widgetChat{c.ID, c.Title, c.UnreadCount})
+		}
+	}
+	return result, total
+}
+
 type widgetSummary struct {
 	Today     string       `json:"today"`
 	Due       int          `json:"due"`
@@ -120,5 +143,57 @@ func (a *app) mobileWidget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	summary := summarizeWidget(items, actor.ID, family, time.Now().In(zone).Format("2006-01-02"), r.URL.Query().Get("mine") == "true")
-	write(w, 200, map[string]any{"userId": actor.ID, "familyId": family, "title": title, "summary": summary})
+	out := map[string]any{"userId": actor.ID, "familyId": family, "title": title, "summary": summary}
+	// Only purchases from the already authorized family; never disclose personal items.
+	if r.URL.Query().Get("configure") == "true" {
+		choices := []widgetItem{}
+		for _, n := range items {
+			if n.Kind == "purchase" && n.CompletedAt == nil && n.ArchivedAt == nil && n.OwnerUserID == nil && n.FamilyID == family {
+				choices = append(choices, widgetItem{ID: n.ID, Title: n.Title})
+				if len(choices) == 200 {
+					break
+				}
+			}
+		}
+		out["purchases"] = choices
+	}
+	if pins := r.URL.Query().Get("pins"); pins != "" {
+		ids := strings.Split(pins, ",")
+		if len(ids) > 3 {
+			domainError(w, chat.ErrInvalid)
+			return
+		}
+		out["pinned"] = widgetPinned(items, family, ids)
+	}
+	if r.URL.Query().Get("chats") == "true" {
+		chats, total := widgetUnreadChats(a.db.Conversations(actor.ID))
+		out["chats"] = chats
+		out["unreadCount"] = total
+	}
+	write(w, 200, out)
+}
+
+type widgetPin struct {
+	ID        string               `json:"id"`
+	Title     string               `json:"title"`
+	Version   int64                `json:"version"`
+	Checklist []chat.ChecklistItem `json:"checklist"`
+}
+
+func widgetPinned(items []chat.ShoppingItem, family string, ids []string) []widgetPin {
+	out := []widgetPin{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] || len(out) >= 3 {
+			continue
+		}
+		seen[id] = true
+		for _, n := range items {
+			if n.ID == id && n.FamilyID == family && n.OwnerUserID == nil && n.Kind == "purchase" && n.CompletedAt == nil && n.ArchivedAt == nil {
+				out = append(out, widgetPin{n.ID, n.Title, n.Version, n.Checklist})
+				break
+			}
+		}
+	}
+	return out
 }

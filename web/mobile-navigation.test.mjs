@@ -8,11 +8,14 @@ for (const mobile of [true,false]) test(`${mobile?'mobile':'desktop'}: retained 
  const dom=new JSDOM(await readFile(new URL('./index.html',import.meta.url),'utf8'),{url:'http://localhost/'});
  for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history'])globalThis[name]=dom.window[name];
  globalThis.matchMedia=()=>({matches:mobile});globalThis.CSS={escape:value=>value};
+ dom.window.HTMLElement.prototype.scrollIntoView=function(){};
+ const serviceWorker=new dom.window.EventTarget();Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:serviceWorker});
  let socket;globalThis.WebSocket=class{constructor(){socket=this;}};
  const conversations=['family','group','direct'].map(kind=>({id:kind,kind,familyId:kind==='family'?'f1':undefined,familyIds:kind==='group'?['f1']:[],groupRole:kind==='group'?'owner':undefined,title:'Synthetic '+kind}));
  conversations.push({id:'family2',kind:'family',familyId:'f2',title:'Second family chat'});
  const calls=[];
- globalThis.fetch=async(url)=>{
+ let sent=false;
+ globalThis.fetch=async(url,options)=>{
   const path=url.replace('/api/v1','');let data=[];
   calls.push(path);
   if(path==='/auth/me')data={ID:'u1',Name:'Test',Permissions:{}};
@@ -23,12 +26,21 @@ for (const mobile of [true,false]) test(`${mobile?'mobile':'desktop'}: retained 
   else if(path.includes('/messages?'))data={messages:[{id:'m1',authorId:'u2',authorName:'Test',body:'History',createdAt:'2026-09-17T10:00:00Z',reactions:[]}]};
   else if(path.startsWith('/contacts?'))data=[{ID:'u2',Name:'Test'}];
   else if(path.endsWith('/direct-conversation'))data=conversations[2];
+  if(path==='/conversations/family/messages'&&options?.method==='POST'){sent=true;data={id:'sent-reply'};}
+  if(sent&&path.includes('/messages?')&&!path.includes('around='))data.messages.push({id:'sent-reply',authorId:'u1',authorName:'Test',body:'New reply',createdAt:'2026-09-17T11:00:00Z',reactions:[]});
   return {ok:true,status:200,json:async()=>structuredClone(data)};
  };
  const wait=()=>new Promise(r=>setTimeout(r,180)), $=s=>document.querySelector(s);
  const visible=()=>document.body.classList.contains('mobileContentOpen');
  try{
   await import(`./app.js?mobile-navigation-${mobile}`);await wait();
+  const notification=new dom.window.Event('message');notification.data={type:'notification.open',conversationID:'family',messageID:'m1'};serviceWorker.dispatchEvent(notification);await wait();
+  assert.ok(calls.some(path=>path.includes('around=m1')));
+  const anchoredArticle=$('[data-message-id="m1"]');assert.ok(anchoredArticle);
+  $('#body').value='New reply';await $('#composer').onsubmit({preventDefault(){}});await wait();
+  assert.ok($('[data-message-id="sent-reply"]'),'reply appears after notification without reopening');
+  assert.equal($('[data-message-id="m1"]'),anchoredArticle,'existing message DOM retained');
+  assert.equal($('[data-latest]'),null);
   const switchFamily=async id=>{$('#familySelect').value=id;$('#familySelect').dispatchEvent(new dom.window.Event('change'));await wait();};
   assert.equal($('#familySelect').hidden,false);assert.equal($('#familySelect').options.length,2);
   for(const id of ['family','group']){

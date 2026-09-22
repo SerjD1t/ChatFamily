@@ -32,7 +32,7 @@ public class FamilyWidgetPlugin extends Plugin {
    if(!user.isEmpty()){
     getActivity().setIntent(new Intent(getContext(),site.chatfamily.app.MainActivity.class));
     if(user.equals(config.optString("owner"))&&WidgetStore.validID(config.optString("family"))&&
-       ("list".equals(action)||"task".equals(action)||"purchase".equals(action)||"item".equals(action)&&WidgetStore.validID(item))){
+       ("list".equals(action)||"task".equals(action)||"purchase".equals(action)||("item".equals(action)||"chat".equals(action))&&WidgetStore.validID(item))){
      out.put("userId",user);out.put("familyId",config.optString("family"));out.put("action",action);out.put("itemId",item==null?"":item);
     }
    }

@@ -1,4 +1,16 @@
 <resources>
+ <string name="widget_pin_mode">Pinned purchases</string>
+ <string name="widget_pin_hint">Select one to three purchases instead of the summary. Tap a title for all entries.</string>
+ <string name="widget_no_pins">No active pinned purchases. Choose others via ⋯</string>
+ <string name="widget_bought">Bought %1$d of %2$d · open list</string>
+ <string name="widget_complete">All bought — complete purchase</string>
+ <string name="widget_saving">Saving check…</string>
+ <string name="widget_check_error">Check not confirmed. Refresh the widget and try again.</string>
+ <string name="widget_show_chats">Show unread chats of this account</string>
+ <string name="widget_chat_count">Unread: %1$d</string>
+ <string name="widget_chat_unread">Messages: %1$d</string>
+ <string name="widget_login_required">Sign in to the installed ChatFamily app, then return to this screen.</string>
+ <string name="widget_open_app">Open ChatFamily</string><string name="widget_retry">Check again</string>
  <string name="widget_name">Family today</string><string name="widget_tasks">Tasks</string><string name="widget_purchases">Purchases</string>
  <string name="widget_tasks_count">Tasks: today %1$d · overdue %2$d</string><string name="widget_purchases_count">To buy: %1$d</string>
  <string name="widget_add_task">＋ Task</string><string name="widget_add_purchase">＋ Purchase</string>

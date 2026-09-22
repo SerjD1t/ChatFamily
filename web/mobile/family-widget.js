@@ -7,7 +7,7 @@ async function plugin(){
 }
 export function validWidgetAction(value,user){
  const id=value=>typeof value==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(value);
- return !!value&&value.userId===user&&id(value.familyId)&&['list','item','task','purchase'].includes(value.action)&&(value.action!=='item'||id(value.itemId));
+ return !!value&&value.userId===user&&id(value.familyId)&&['list','item','task','purchase','chat'].includes(value.action)&&(!['item','chat'].includes(value.action)||id(value.itemId));
 }
 export async function clearFamilyWidgets(){const native=await plugin();if(native)await native.session({userId:''});}
 export function refreshFamilyWidgets(){

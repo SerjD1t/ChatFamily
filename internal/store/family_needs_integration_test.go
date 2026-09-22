@@ -213,6 +213,45 @@ func TestFamilyNeeds(t *testing.T) {
 	if _, err = p.NeedDetails(author, "", moving.ID); err != nil {
 		t.Fatal("private details after transfer", err)
 	}
+	t.Run("purchase checklist permissions history and conflicts", func(t *testing.T) {
+		purchase, e := p.SaveNeed(author, family, "", NeedInput{Title: needPtr("Bread, milk 1,5 l")})
+		if e != nil {
+			t.Fatal(e)
+		}
+		entries := []chat.ChecklistItem{{Text: "Bread"}, {Text: "Milk 1,5 l"}}
+		if _, e = p.SaveNeed(member, family, purchase.ID, NeedInput{Checklist: &entries, Version: &purchase.Version}); !errors.Is(e, chat.ErrForbidden) {
+			t.Fatal("member replacement", e)
+		}
+		purchase, e = p.SaveNeed(author, family, purchase.ID, NeedInput{Checklist: &entries, ChecklistSource: needPtr("client source"), Version: &purchase.Version})
+		if e != nil {
+			t.Fatal(e)
+		}
+		var original string
+		if e = p.Pool.QueryRow(ctx, `SELECT body FROM family_need_activity WHERE item_id=$1 AND action='checklist_created'`, purchase.ID).Scan(&original); e != nil || original != "Bread, milk 1,5 l" {
+			t.Fatal("original history", e)
+		}
+		old := purchase.Version
+		check := chat.ChecklistItem{ID: purchase.Checklist[0].ID, Completed: true}
+		if _, e = p.SaveNeed(outsider, family, purchase.ID, NeedInput{CheckItem: &check, Version: &old}); !errors.Is(e, chat.ErrForbidden) {
+			t.Fatal("outsider check", e)
+		}
+		purchase, e = p.SaveNeed(member, family, purchase.ID, NeedInput{CheckItem: &check, Version: &old})
+		if e != nil || !purchase.Checklist[0].Completed || purchase.CompletedAt != nil {
+			t.Fatal("member check", e)
+		}
+		var previous bool
+		if e = p.Pool.QueryRow(ctx, `SELECT (before_state->'checklist'->0->>'completed')::boolean FROM family_need_activity WHERE item_id=$1 AND action='checklist_checked'`, purchase.ID).Scan(&previous); e != nil || previous {
+			t.Fatal("immutable before", e)
+		}
+		if _, e = p.SaveNeed(member, family, purchase.ID, NeedInput{CheckItem: &check, Version: &old}); !errors.Is(e, ErrNeedConflict) {
+			t.Fatal("stale check", e)
+		}
+		v := purchase.Version
+		purchase, e = p.SaveNeed(member, family, purchase.ID, NeedInput{CheckItem: &check, Version: &v})
+		if e != nil || purchase.Version != v {
+			t.Fatal("idempotent explicit state", e)
+		}
+	})
 	if _, err = p.Pool.Exec(ctx, `DELETE FROM family_members WHERE user_id=$1`, author.ID); err != nil {
 		t.Fatal(err)
 	}

@@ -74,7 +74,7 @@ const receipts = createReceipts({
   request,
   root: () => currentUser && active === displayedConversation ? $("#messages") : null,
   userID: () => currentUser?.ID,
-  onRead: () => { void loadConversations().catch(() => {}); },
+  onRead: () => { refreshFamilyWidgets(); void loadConversations().catch(() => {}); },
 });
 let statusRunning = false, statusAgain = false;
 const receiptDetails = createReceiptDetails({request,locale:()=>userPreferences.locale});
@@ -1225,6 +1225,9 @@ $("#composer").onsubmit = async (e) => {
       renderAttachments();
     }
     if (active === conversationID) {
+      // Leave the notification's anchored history window after a successful send.
+      historyTarget = "";
+      $("#messages").scrollTop = $("#messages").scrollHeight;
       if ($("#body").value === submittedText) $("#body").value = "";
       $("#body").style.height = "auto";
       $("#attachmentFiles").value = "";
@@ -1262,6 +1265,13 @@ async function bootApp() {
     await configurePush();
     await notificationNavigation.flush();
     await initFamilyWidgets({user:currentUser.ID,open:async target=>{
+      if(target.action==='chat'){
+        await loadConversations(false);
+        const chat=conversations.find(c=>c.id===target.itemId);
+        if(!chat)throw Error('Chat unavailable');
+        document.querySelectorAll('dialog[open]').forEach(d=>d.close());
+        await openConversation(chat.id);return;
+      }
       const available=await request('/families');
       if(!available.some(f=>f.id===target.familyId))throw Error('Family unavailable');
       document.querySelectorAll('dialog[open]').forEach(d=>d.close());
@@ -1296,6 +1306,7 @@ function connectEvents() {
   socket.onmessage = async (message) => {
     try {
       const event = JSON.parse(message.data);
+      if(event.type.startsWith('message.')||event.type==='conversations.changed')refreshFamilyWidgets();
       if (event.type === "message.status") {
         if (event.conversationId === active) await refreshStatuses();
         await loadConversations();

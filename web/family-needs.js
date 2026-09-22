@@ -1,5 +1,6 @@
 import { syncMarkup } from './dom-sync.js';
 import { todayISO, formatShoppingDate } from './format.js';
+import { mountChecklist } from './need-checklist.js';
 
 const mounted = new WeakMap();
 export async function openNeedsTarget(host,{itemId,createKind}) {
@@ -91,6 +92,12 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
    const value=(n,key)=>key==='assigneeId'?n.assigneeName:key==='plannedDate'?n[key]?.slice(0,10):key==='kind'?(n[key]==='task'?t('Дело','Task'):t('Покупка','Purchase')):n[key];
    for(const key of Object.keys(labels)) if((a.before[key]||'')!==(a.after[key]||'')) changed.push(`${labels[key]}: ${value(a.before,key)||'—'} → ${value(a.after,key)||'—'}`);
   }
+  if(a.action.startsWith('checklist_')){
+   names.checklist_created=t('Создан чек-лист. Исходный текст: ','Checklist created. Original text: ')+(a.body||'');
+   names.checklist_edited=t('Изменён чек-лист','Checklist edited');
+   names.checklist_checked=t('Отметки покупки','Purchase checks');
+   for(const entry of a.after?.checklist||[]){const old=a.before?.checklist?.find(e=>e.id===entry.id);if(old&&old.completed!==entry.completed)changed.push(`${entry.completed?'☑':'☐'} ${entry.text}`);}
+  }
   return (names[a.action]||a.action)+(changed.length?' · '+changed.join('; '):'');
  }
  async function openDetail(id) {
@@ -114,6 +121,7 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
     <section class="needSummary" data-summary><h2>${esc(n.title)}</h2><p>${personal?t('👤 Личное · Только мне','👤 Personal · Only me'):t('👥 Семейное','👥 Family')}</p>
     <div class="needSummaryMeta"><span>${n.kind==='task'?t('✓ Дело','✓ Task'):t('🛒 Покупка','🛒 Purchase')}</span><span>${esc(n.plannedDate?formatShoppingDate(n.plannedDate.slice(0,10),locale):t('Без срока','No due date'))}</span>${!personal?`<span>${esc(n.assigneeName||t('Не назначен','Unassigned'))}</span>`:''}${n.archivedAt?`<span>${t('В архиве','Archived')}</span>`:''}</div>
     ${n.description?`<p class="needDescription">${esc(n.description)}</p>`:''}
+    <div data-checklist></div>
     ${n.completedAt?`<small>${t('Выполнено','Completed')}: ${esc(new Date(n.completedAt).toLocaleString(locale))}</small>`:''}
     ${editable?`<button type="button" class="secondary" data-start-edit>${t('Редактировать','Edit')}</button>`:''}</section>
     <form data-edit hidden><fieldset ${editable?'':'disabled'}>
@@ -224,6 +232,16 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
      if(selected?.id===id)selected.commentCount=latest.item.commentCount;
     },true);
    });
+   if(n.kind==='purchase')mountChecklist({host:current.querySelector('[data-checklist]'),item:n,editable,t,save:async body=>{
+    if(saving)throw Error(t('Дождитесь сохранения','Wait for saving'));saving=true;
+    try{
+     const saved=await mutate(base+'/'+encodeURIComponent(id),{...body,version:n.version});
+     Object.assign(n,saved);selected=n;
+     // Keep the comment and edit drafts. A failed history refresh must not repeat the mutation.
+     try{const latest=await request(base+'/'+encodeURIComponent(id));if(current.isConnected)syncMarkup(current.querySelector('[data-comments]'),activity(latest.activity));}catch{current.querySelector('[data-stale]').hidden=false;}
+     try{await reload();}catch{current.querySelector('[data-stale]').hidden=false;}
+    }finally{saving=false;}
+   }});
    current.showModal();
   }catch(e){announce(e.message,'error');}
  }

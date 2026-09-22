@@ -7,6 +7,41 @@ import (
 	"time"
 )
 
+func TestWidgetUnreadChatsAreGlobalAndBounded(t *testing.T) {
+	chats := []chat.Conversation{
+		{ID: "direct", Kind: chat.Direct, UnreadCount: 2},
+		{ID: "group", Kind: chat.Group, UnreadCount: 3},
+		{ID: "family", Kind: chat.Family, FamilyID: "other-family", UnreadCount: 4},
+		{ID: "read", UnreadCount: 0},
+		{ID: "fourth", UnreadCount: 1}, {ID: "fifth", UnreadCount: 7},
+	}
+	rows, total := widgetUnreadChats(chats)
+	if len(rows) != 4 || total != 17 || rows[0].ID != "direct" || rows[2].ID != "family" {
+		t.Fatalf("unexpected unread summary: %+v %d", rows, total)
+	}
+	empty, n := widgetUnreadChats(nil)
+	if empty == nil || len(empty) != 0 || n != 0 {
+		t.Fatal("expected empty array")
+	}
+}
+
+func TestWidgetPinsRespectScopeAndCurrentState(t *testing.T) {
+	user := "self"
+	now := time.Now()
+	items := []chat.ShoppingItem{
+		{ID: "ok", FamilyID: "f", Kind: "purchase", Version: 3, Checklist: []chat.ChecklistItem{{ID: "entry", Text: "Bread"}}},
+		{ID: "private", OwnerUserID: &user, Kind: "purchase"},
+		{ID: "foreign", FamilyID: "other", Kind: "purchase"},
+		{ID: "archived", FamilyID: "f", Kind: "purchase", ArchivedAt: &now},
+		{ID: "done", FamilyID: "f", Kind: "purchase", CompletedAt: &now},
+		{ID: "task", FamilyID: "f", Kind: "task"},
+	}
+	pins := widgetPinned(items, "f", []string{"private", "foreign", "archived", "done", "task", "ok", "ok"})
+	if len(pins) != 1 || pins[0].ID != "ok" || pins[0].Version != 3 || len(pins[0].Checklist) != 1 {
+		t.Fatal("incorrect pin projection")
+	}
+}
+
 func TestWidgetRequiresSessionAndExpectedAccount(t *testing.T) {
 	a := testApp()
 	for _, authenticated := range []bool{false, true} {

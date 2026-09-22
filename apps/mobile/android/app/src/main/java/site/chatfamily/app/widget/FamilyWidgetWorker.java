@@ -27,7 +27,7 @@ public class FamilyWidgetWorker extends Worker {
    JSONObject config=WidgetStore.config(c,id);String family=config.optString("family");
    if(user.isEmpty()||!user.equals(config.optString("owner"))||!WidgetStore.validID(family))continue;
    try {
-    JSONObject data=WidgetHttp.get("?familyId="+family+"&mine="+config.optBoolean("mine")+"&timezone="+URLEncoder.encode(ZoneId.systemDefault().getId(),"UTF-8"),user);
+    JSONObject data=fetch(config,user);
     if(isStopped())return Result.success();
     if(!family.equals(data.optString("familyId")))throw new WidgetHttp.Status(403);
     data.put("fetchedAt",System.currentTimeMillis());WidgetStore.result(c,id,epoch,family,data,"",false);
@@ -39,5 +39,10 @@ public class FamilyWidgetWorker extends Worker {
    FamilyWidgetProvider.render(c,id);
   }
   return Result.success();
+ }
+ static JSONObject fetch(JSONObject config,String user)throws Exception {
+  org.json.JSONArray pins=config.optJSONArray("pins");StringBuilder selected=new StringBuilder();
+  if(pins!=null)for(int i=0;i<Math.min(3,pins.length());i++){String id=pins.optString(i);if(WidgetStore.validID(id)){if(selected.length()>0)selected.append(',');selected.append(id);}}
+  return WidgetHttp.get("?familyId="+config.optString("family")+"&mine="+config.optBoolean("mine")+"&chats="+config.optBoolean("chats")+"&pins="+selected+"&timezone="+URLEncoder.encode(ZoneId.systemDefault().getId(),"UTF-8"),user);
  }
 }

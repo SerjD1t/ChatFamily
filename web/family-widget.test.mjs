@@ -11,6 +11,8 @@ test('widget navigation is account bound and accepts only known actions and iden
  }
  for(const action of ['list','task','purchase'])assert.equal(validWidgetAction({...value,action,itemId:''},'self'),true);
  assert.equal(validWidgetAction(null,'self'),false);
+ assert.equal(validWidgetAction({...value,action:'chat'},'self'),true);
+ assert.equal(validWidgetAction({...value,action:'chat',itemId:''},'self'),false);
 });
 test('browser without native widgets remains unaffected',async()=>{
  await initFamilyWidgets({user:'self',open:()=>assert.fail('Unexpected navigation'),onError:()=>assert.fail('Unexpected native call')});

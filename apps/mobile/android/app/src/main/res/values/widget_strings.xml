@@ -1,4 +1,16 @@
 <resources>
+ <string name="widget_pin_mode">Закреплённые покупки</string>
+ <string name="widget_pin_hint">Выберите от одной до трёх покупок вместо общей сводки. Все пункты доступны по нажатию на название.</string>
+ <string name="widget_no_pins">Нет текущих закреплённых покупок. Выберите другие через ⋯</string>
+ <string name="widget_bought">Куплено %1$d из %2$d · открыть список</string>
+ <string name="widget_complete">Всё куплено — завершить покупку</string>
+ <string name="widget_saving">Сохранение отметки…</string>
+ <string name="widget_check_error">Отметка не подтверждена. Обновите виджет и повторите.</string>
+ <string name="widget_show_chats">Показывать непрочитанные чаты аккаунта</string>
+ <string name="widget_chat_count">Непрочитанные: %1$d</string>
+ <string name="widget_chat_unread">Сообщений: %1$d</string>
+ <string name="widget_login_required">Войдите в установленное приложение ChatFamily, затем вернитесь на этот экран.</string>
+ <string name="widget_open_app">Открыть ChatFamily</string><string name="widget_retry">Повторить проверку</string>
  <string name="widget_name">Семья сегодня</string><string name="widget_tasks">Дела</string><string name="widget_purchases">Покупки</string>
  <string name="widget_tasks_count">Дела: сегодня %1$d · просрочено %2$d</string><string name="widget_purchases_count">Купить: %1$d</string>
  <string name="widget_add_task">＋ Дело</string><string name="widget_add_purchase">＋ Покупка</string>
