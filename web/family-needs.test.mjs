@@ -21,6 +21,41 @@ test('counters exclude completed, archived and undated from today/overdue',()=>{
 });
 const require=createRequire(import.meta.url);let JSDOM;try{({JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom'));}catch{}
 
+test('personal widget pin is available to a member, preserves draft, handles failure and duplicates',{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;globalThis.window=dom.window;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
+ const settle=()=>new Promise(r=>setTimeout(r,0));
+ try{
+  const host=document.querySelector('main'),item={id:'pin',familyId:'f',kind:'purchase',title:'Synthetic purchase',version:1};
+  let pinned=false,release,fail=false;const calls=[];
+  const args={host,familyID:'f',items:[item],announce:()=>{},refresh:async()=>{},request:async(path,options)=>{
+   if(options){calls.push([path,options.method,JSON.parse(options.body)]);await new Promise(r=>release=r);if(fail)throw Error('Limit reached');pinned=JSON.parse(options.body).pinned;return {pinned};}
+   return {item:{...item},members:[],activity:[],canEdit:false,widgetPinned:pinned};
+  }};
+  mountNeeds(args);host.querySelector('[data-open]').click();await settle();
+  const card=host.querySelector('.needDialog'),button=card.querySelector('[data-widget-pin]'),draft=card.querySelector('[data-comment] textarea');draft.value='Keep comment';
+  assert.ok(button);assert.equal(card.querySelector('[data-start-edit]'),null);assert.equal(button.getAttribute('aria-pressed'),'false');
+  button.click();button.click();assert.equal(calls.length,1);assert.deepEqual(calls[0],['/families/f/needs/pin/widget-pin','PUT',{pinned:true}]);
+  release();await settle();assert.equal(button.getAttribute('aria-pressed'),'true');assert.equal(draft.value,'Keep comment');assert.ok(card.open);
+  fail=true;button.click();release();await settle();assert.equal(button.getAttribute('aria-pressed'),'true');assert.match(card.querySelector('[data-error]').textContent,/Limit/);
+  fail=false;button.click();release();await settle();assert.equal(button.getAttribute('aria-pressed'),'false');
+ }finally{dom.window.close();delete globalThis.document;delete globalThis.window;}
+});
+
+for(const change of [{ownerUserId:'self',familyId:''},{kind:'task'},{completedAt:'2026-09-23'},{archivedAt:'2026-09-23'}])test(`widget pin absent for ineligible purchase ${JSON.stringify(change)}`,{skip:!JSDOM},async()=>{
+ const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;globalThis.window=dom.window;
+ dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ try{
+  const item={id:'i',familyId:'f',kind:'purchase',title:'Synthetic',version:1,...change};const host=document.querySelector('main');
+  mountNeeds({host,familyID:'f',items:[item],request:async()=>({item,members:[],activity:[],canEdit:false}),refresh:async()=>{},announce:()=>{}});
+  if(item.completedAt)host.querySelector('[name=status][value=done]').click();
+  if(item.archivedAt)host.querySelector('[name=status][value=archive]').click();
+  host.querySelector('[data-open]').click();await new Promise(r=>setTimeout(r,0));
+  assert.ok(host.querySelector('.needDialog'));assert.equal(host.querySelector('[data-widget-pin]'),null);
+ }finally{dom.window.close();delete globalThis.document;delete globalThis.window;}
+});
+
 test('widget target opens only current family cards and explicit family creation',{skip:!JSDOM},async()=>{
  const dom=new JSDOM('<main></main>');globalThis.document=dom.window.document;globalThis.window=dom.window;
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};

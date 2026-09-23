@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"familychat/internal/chat"
+	"familychat/internal/store"
 	"net/http"
 	"sort"
 	"strings"
@@ -17,9 +19,11 @@ type widgetItem struct {
 }
 
 type widgetChat struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Unread int64  `json:"unread"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Unread    int64  `json:"unread"`
+	Icon      string `json:"icon,omitempty"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
 }
 
 func widgetUnreadChats(chats []chat.Conversation) ([]widgetChat, int64) {
@@ -30,8 +34,8 @@ func widgetUnreadChats(chats []chat.Conversation) ([]widgetChat, int64) {
 			continue
 		}
 		total += c.UnreadCount
-		if len(result) < 4 {
-			result = append(result, widgetChat{c.ID, c.Title, c.UnreadCount})
+		if len(result) < 5 {
+			result = append(result, widgetChat{ID: c.ID, Title: c.Title, Unread: c.UnreadCount, Icon: c.Icon})
 		}
 	}
 	return result, total
@@ -144,6 +148,15 @@ func (a *app) mobileWidget(w http.ResponseWriter, r *http.Request) {
 	}
 	summary := summarizeWidget(items, actor.ID, family, time.Now().In(zone).Format("2006-01-02"), r.URL.Query().Get("mine") == "true")
 	out := map[string]any{"userId": actor.ID, "familyId": family, "title": title, "summary": summary}
+	if r.URL.Query().Get("savedPins") == "true" {
+		ids, e := a.db.WidgetPinIDs(actor.ID, family)
+		if e != nil {
+			domainError(w, e)
+			return
+		}
+		out["pinned"] = widgetPinned(items, family, ids)
+		out["savedPins"] = true
+	}
 	// Only purchases from the already authorized family; never disclose personal items.
 	if r.URL.Query().Get("configure") == "true" {
 		choices := []widgetItem{}
@@ -157,7 +170,7 @@ func (a *app) mobileWidget(w http.ResponseWriter, r *http.Request) {
 		}
 		out["purchases"] = choices
 	}
-	if pins := r.URL.Query().Get("pins"); pins != "" {
+	if pins := r.URL.Query().Get("pins"); pins != "" && r.URL.Query().Get("savedPins") != "true" {
 		ids := strings.Split(pins, ",")
 		if len(ids) > 3 {
 			domainError(w, chat.ErrInvalid)
@@ -166,11 +179,55 @@ func (a *app) mobileWidget(w http.ResponseWriter, r *http.Request) {
 		out["pinned"] = widgetPinned(items, family, ids)
 	}
 	if r.URL.Query().Get("chats") == "true" {
-		chats, total := widgetUnreadChats(a.db.Conversations(actor.ID))
+		conversations := a.db.Conversations(actor.ID)
+		chats, total := widgetUnreadChats(conversations)
+		for i, c := range chats {
+			for _, conv := range conversations {
+				if conv.ID == c.ID && conv.Kind == chat.Direct {
+					if u, ok := a.db.User(conv.PeerUserID); ok {
+						chats[i].AvatarURL = u.AvatarURL
+					}
+					break
+				}
+			}
+		}
 		out["chats"] = chats
 		out["unreadCount"] = total
 	}
 	write(w, 200, out)
+}
+
+func (a *app) widgetPin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if a.db == nil {
+		write(w, 503, map[string]string{"error": "PostgreSQL required"})
+		return
+	}
+	actor := a.user(id(r))
+	if expected := r.Header.Get("X-Expected-User"); expected != "" && expected != actor.ID {
+		domainError(w, chat.ErrForbidden)
+		return
+	}
+	var in struct {
+		Pinned *bool `json:"pinned"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Pinned == nil {
+		domainError(w, chat.ErrInvalid)
+		return
+	}
+	if err := a.db.SetWidgetPin(actor, r.PathValue("familyID"), r.PathValue("itemID"), *in.Pinned); err != nil {
+		if errors.Is(err, store.ErrWidgetPinLimit) {
+			write(w, 409, map[string]string{"error": "Можно закрепить до трёх покупок / Up to three purchases can be pinned"})
+		} else {
+			domainError(w, err)
+		}
+		return
+	}
+	write(w, 200, map[string]bool{"pinned": *in.Pinned})
+	a.hub.publish(realtimeEvent{Type: "shopping.changed", UserID: actor.ID})
 }
 
 type widgetPin struct {

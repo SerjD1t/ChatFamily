@@ -1,0 +1,8 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_chat" android:layout_width="48dp" android:layout_height="70dp" android:orientation="vertical" android:gravity="center_horizontal">
+ <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+  <TextView android:id="@+id/widget_chat_initials" android:layout_width="40dp" android:layout_height="40dp" android:layout_gravity="center" android:background="@drawable/widget_chat_circle" android:gravity="center" android:textColor="@color/widget_text" android:textSize="16sp" android:maxLines="1"/>
+  <ImageView android:id="@+id/widget_chat_avatar" android:layout_width="40dp" android:layout_height="40dp" android:layout_gravity="center" android:importantForAccessibility="no" android:scaleType="fitCenter" android:visibility="gone"/>
+  <TextView android:id="@+id/widget_chat_badge" android:layout_width="wrap_content" android:layout_height="20dp" android:minWidth="20dp" android:paddingHorizontal="3dp" android:layout_gravity="top|end" android:gravity="center" android:background="@drawable/widget_chat_badge" android:textColor="#FFFFFF" android:textSize="10sp" android:maxLines="1"/>
+ </FrameLayout>
+ <TextView android:id="@+id/widget_chat_name" android:layout_width="match_parent" android:layout_height="20dp" android:gravity="center" android:textColor="@color/widget_muted" android:textSize="10sp" android:maxLines="1" android:ellipsize="end"/>
+</LinearLayout>

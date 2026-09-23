@@ -123,6 +123,10 @@ func (p *Postgres) NeedDetails(actor chat.User, familyID, itemID string) (any, e
 	if err != nil {
 		return nil, err
 	}
+	var widgetPinned bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM widget_purchase_pins WHERE user_id=$1 AND family_id=$2 AND item_id=$3)`, actor.ID, familyID, itemID).Scan(&widgetPinned); err != nil {
+		return nil, err
+	}
 	members := []NeedMember{}
 	rows, err = p.Pool.Query(ctx, `SELECT u.id,u.display_name FROM family_members fm JOIN users u ON u.id=fm.user_id WHERE fm.family_id=$1 AND u.disabled_at IS NULL ORDER BY u.display_name`, familyID)
 	if err != nil {
@@ -137,12 +141,13 @@ func (p *Postgres) NeedDetails(actor chat.User, familyID, itemID string) (any, e
 		members = append(members, m)
 	}
 	return struct {
-		Item     chat.ShoppingItem `json:"item"`
-		Activity []NeedActivity    `json:"activity"`
-		Members  []NeedMember      `json:"members"`
-		CanEdit  bool              `json:"canEdit"`
-		CanMove  bool              `json:"canMove"`
-	}{n, activity, members, n.CreatedBy == actor.ID || p.FamilyAdmin(actor.ID, familyID), n.CreatedBy == actor.ID && n.ArchivedAt == nil}, rows.Err()
+		Item         chat.ShoppingItem `json:"item"`
+		Activity     []NeedActivity    `json:"activity"`
+		Members      []NeedMember      `json:"members"`
+		CanEdit      bool              `json:"canEdit"`
+		CanMove      bool              `json:"canMove"`
+		WidgetPinned bool              `json:"widgetPinned"`
+	}{n, activity, members, n.CreatedBy == actor.ID || p.FamilyAdmin(actor.ID, familyID), n.CreatedBy == actor.ID && n.ArchivedAt == nil, widgetPinned}, rows.Err()
 }
 
 // All writers, including the legacy shopping routes, use the same transaction.
@@ -253,6 +258,9 @@ func (p *Postgres) SaveNeed(actor chat.User, familyID, itemID string, in NeedInp
 		}
 		if in.Version == nil || n.ArchivedAt != nil || (n.FamilyID != "" && *in.TargetFamilyID != "") {
 			return n, chat.ErrInvalid
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM widget_purchase_pins WHERE item_id=$1`, itemID); err != nil {
+			return n, err
 		}
 		if *in.TargetFamilyID != "" {
 			var member string

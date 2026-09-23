@@ -8,6 +8,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import site.chatfamily.app.share.IncomingSharePlugin;
 import site.chatfamily.app.share.ShareStore;
+import site.chatfamily.app.share.ShareOpenRequests;
 import site.chatfamily.app.push.PushEnvironmentPlugin;
 import com.getcapacitor.BridgeWebViewClient;
 import android.webkit.WebResourceRequest;
@@ -48,12 +49,16 @@ public class MainActivity extends BridgeActivity {
     @Override protected void onNewIntent(Intent intent) { setIntent(intent); super.onNewIntent(intent); receive(intent); }
     @Override public void onPause() { android.webkit.CookieManager.getInstance().flush(); super.onPause(); }
     private void receive(Intent intent) {
-        if(intent==null || !(Intent.ACTION_SEND.equals(intent.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction()))) return;
+        if(intent==null)return;
+        if(!ShareOpenRequests.freshShare(intent.getAction(),(intent.getFlags()&Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)!=0)){
+            ShareOpenRequests.ordinaryEntry();return;
+        }
+        long generation=ShareOpenRequests.generation();
         Intent incoming=new Intent(intent);
         setIntent(new Intent(this,MainActivity.class));
         Toast.makeText(this,"Подготовка вложений…",Toast.LENGTH_SHORT).show();
         IMPORTS.execute(()->{
-            try { ShareStore.receive(getApplicationContext(),incoming); }
+            try { String id=ShareStore.receive(getApplicationContext(),incoming);ShareOpenRequests.received(id,generation); }
             catch(Exception e) { runOnUiThread(()->Toast.makeText(this,"Не удалось принять вложения. Проверьте доступ и лимит 25 МиБ на файл (до 10 файлов).",Toast.LENGTH_LONG).show()); }
         });
     }

@@ -1,7 +1,8 @@
 <resources>
  <string name="widget_pin_mode">Закреплённые покупки</string>
- <string name="widget_pin_hint">Выберите от одной до трёх покупок вместо общей сводки. Все пункты доступны по нажатию на название.</string>
- <string name="widget_no_pins">Нет текущих закреплённых покупок. Выберите другие через ⋯</string>
+ <string name="widget_pin_hint">Закрепляйте покупки булавкой в карточке ChatFamily (до трёх для каждой семьи). Они автоматически заменят общую сводку во всех ваших виджетах этой семьи.</string>
+ <string name="widget_no_pins">Закрепите покупку булавкой в её карточке ChatFamily</string>
+ <string name="widget_open_purchase">Открыть покупку</string>
  <string name="widget_bought">Куплено %1$d из %2$d · открыть список</string>
  <string name="widget_complete">Всё куплено — завершить покупку</string>
  <string name="widget_saving">Сохранение отметки…</string>

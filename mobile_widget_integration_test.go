@@ -104,6 +104,44 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 	if call("widget_member", query+"&pins=a,b,c,d", "widget_member").Code != 400 {
 		t.Fatal("unbounded pins")
 	}
+	pin := func(actor, expected, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PUT", "/api/v1/families/widget_family/needs/"+purchase.ID+"/widget-pin", strings.NewReader(body))
+		r.SetPathValue("familyID", "widget_family")
+		r.SetPathValue("itemID", purchase.ID)
+		r.Header.Set("X-Expected-User", expected)
+		r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, actor))
+		w := httptest.NewRecorder()
+		a.widgetPin(w, r)
+		return w
+	}
+	if pin("widget_admin", "widget_admin", `{"pinned":true}`).Code != 403 {
+		t.Fatal("administrator acquired personal pin without membership")
+	}
+	if pin("widget_member", "widget_admin", `{"pinned":true}`).Code != 403 {
+		t.Fatal("pin account binding")
+	}
+	if pin("widget_member", "widget_member", `{}`).Code != 400 {
+		t.Fatal("missing explicit pin state")
+	}
+	for i := 0; i < 2; i++ {
+		if pin("widget_member", "widget_member", `{"pinned":true}`).Code != 200 {
+			t.Fatal("idempotent pin failed")
+		}
+	}
+	saved := call("widget_member", query+"&savedPins=true&pins=ignored", "widget_member")
+	if json.Unmarshal(saved.Body.Bytes(), &pinResponse) != nil || len(pinResponse.Pinned) != 1 {
+		t.Fatal("saved pins not applied")
+	}
+	if pin("widget_member", "widget_member", `{"pinned":false}`).Code != 200 {
+		t.Fatal("unpin failed")
+	}
+	saved = call("widget_member", query+"&savedPins=true&pins="+purchase.ID, "widget_member")
+	if json.Unmarshal(saved.Body.Bytes(), &pinResponse) != nil || len(pinResponse.Pinned) != 0 {
+		t.Fatal("legacy device pins override server selection")
+	}
+	if pin("widget_member", "widget_member", `{"pinned":true}`).Code != 200 {
+		t.Fatal("repin failed")
+	}
 	patch := func(expected string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("PATCH", "/api/v1/families/widget_family/needs/"+purchase.ID, strings.NewReader(`{"version":1,"checkItem":{"id":"`+purchase.Checklist[0].ID+`","completed":true}}`))
 		r.SetPathValue("familyID", "widget_family")
@@ -128,5 +166,9 @@ func TestWidgetFamilyIsolationIntegration(t *testing.T) {
 	}
 	if call("widget_member", query, "widget_member").Code != 403 {
 		t.Fatal("removed member retains widget access")
+	}
+	var pins int
+	if err = p.Pool.QueryRow(ctx, `SELECT count(*) FROM widget_purchase_pins WHERE user_id='widget_member'`).Scan(&pins); err != nil || pins != 0 {
+		t.Fatal("membership removal retained pins")
 	}
 }

@@ -1,5 +1,7 @@
 // Preserve existing nodes, focus and scroll when server data changes.
 function key(node) {
+  // Several actions can belong to the same record; each needs its own DOM key.
+  if (node.nodeType === 1 && node.hasAttribute('data-id') && node.hasAttribute('data-action')) return `${node.getAttribute('data-id')}:${node.getAttribute('data-action')}`;
   return node.nodeType === 1 ? node.getAttribute('data-message-id') || node.getAttribute('data-shopping-id') || node.getAttribute('data-id') || node.id : null;
 }
 function reconcile(parent, incoming) {

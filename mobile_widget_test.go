@@ -10,13 +10,13 @@ import (
 func TestWidgetUnreadChatsAreGlobalAndBounded(t *testing.T) {
 	chats := []chat.Conversation{
 		{ID: "direct", Kind: chat.Direct, UnreadCount: 2},
-		{ID: "group", Kind: chat.Group, UnreadCount: 3},
+		{ID: "group", Kind: chat.Group, UnreadCount: 3, Icon: "🛒"},
 		{ID: "family", Kind: chat.Family, FamilyID: "other-family", UnreadCount: 4},
 		{ID: "read", UnreadCount: 0},
 		{ID: "fourth", UnreadCount: 1}, {ID: "fifth", UnreadCount: 7},
 	}
 	rows, total := widgetUnreadChats(chats)
-	if len(rows) != 4 || total != 17 || rows[0].ID != "direct" || rows[2].ID != "family" {
+	if len(rows) != 5 || total != 17 || rows[0].ID != "direct" || rows[2].ID != "family" || rows[1].Icon != "🛒" {
 		t.Fatalf("unexpected unread summary: %+v %d", rows, total)
 	}
 	empty, n := widgetUnreadChats(nil)

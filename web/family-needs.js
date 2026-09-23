@@ -1,6 +1,7 @@
 import { syncMarkup } from './dom-sync.js';
 import { todayISO, formatShoppingDate } from './format.js';
 import { mountChecklist } from './need-checklist.js';
+import { iconMarkup } from './icons.js';
 
 const mounted = new WeakMap();
 export async function openNeedsTarget(host,{itemId,createKind}) {
@@ -136,6 +137,12 @@ export function mountNeeds({host,familyID,items,request,refresh,announce,locale=
     ${!n.archivedAt?`<form data-comment><label>${t('Новый комментарий','New comment')}<textarea name="body" maxlength="4000" rows="2" required></textarea></label><button>${t('Отправить','Send')}</button></form>`:''}
     ${data.canEdit?`<details class="needMore"><summary>${t('Другие действия','Other actions')}</summary><button type="button" class="secondary" data-archive>${n.archivedAt?t('Вернуть из архива','Restore from archive'):t('В архив','Archive')}</button></details>`:''}`;
    const current=dialog;
+   if(!personal&&n.kind==='purchase'&&!n.completedAt&&!n.archivedAt){
+    const pin=document.createElement('button');pin.type='button';pin.className='secondary needWidgetPin';pin.dataset.widgetPin='';
+    const paint=()=>{const label=data.widgetPinned?t('Открепить от моего виджета','Unpin from my widget'):t('Закрепить в моём виджете','Pin to my widget');pin.innerHTML=iconMarkup('pin');pin.title=label;pin.setAttribute('aria-label',label);pin.setAttribute('aria-pressed',String(!!data.widgetPinned));};
+    paint();current.querySelector('.needDialogHead').insertBefore(pin,current.querySelector('[data-close]'));
+    pin.onclick=()=>act(async()=>{const result=await mutate(base+'/'+encodeURIComponent(id)+'/widget-pin',{pinned:!data.widgetPinned},'PUT');data.widgetPinned=result.pinned;paint();},true);
+   }
    let picker=null;
    const dateText=()=>n.plannedDate?formatShoppingDate(n.plannedDate.slice(0,10),locale):t('Без срока','No due date');
    const meta=current.querySelector('.needSummaryMeta');

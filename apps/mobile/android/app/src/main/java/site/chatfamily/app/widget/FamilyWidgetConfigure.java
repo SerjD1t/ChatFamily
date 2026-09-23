@@ -70,36 +70,12 @@ public class FamilyWidgetConfigure extends Activity {
   CheckBox mine=new CheckBox(this);mine.setText(R.string.widget_mine);mine.setChecked(old.optBoolean("mine"));mine.setMinHeight(dp(48));box.addView(mine);
   TextView purchases=new TextView(this);purchases.setText(R.string.widget_all_purchases);box.addView(purchases);
   CheckBox chats=new CheckBox(this);chats.setText(R.string.widget_show_chats);chats.setChecked(old.optBoolean("chats"));chats.setMinHeight(dp(48));box.addView(chats);
-  CheckBox pinMode=new CheckBox(this);pinMode.setText(R.string.widget_pin_mode);pinMode.setMinHeight(dp(48));pinMode.setChecked(old.optJSONArray("pins")!=null&&old.optJSONArray("pins").length()>0);box.addView(pinMode);
-  LinearLayout choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);box.addView(choices);
+  TextView pinHint=new TextView(this);pinHint.setText(R.string.widget_pin_hint);box.addView(pinHint);
   Button save=new Button(this);save.setText(R.string.widget_save);box.addView(save);
-  Runnable loadPins=()->{
-   choices.removeAllViews();choices.setVisibility(pinMode.isChecked()?View.VISIBLE:View.GONE);
-   if(!pinMode.isChecked()){save.setEnabled(true);return;}
-   save.setEnabled(false);int request=++generation;
-   String family=families.optJSONObject(spinner.getSelectedItemPosition()).optString("id");String account=owner;
-   executor.execute(()->{try{
-    JSONObject data=WidgetHttp.get("?familyId="+family+"&configure=true&timezone="+java.net.URLEncoder.encode(java.time.ZoneId.systemDefault().getId(),"UTF-8"),account);
-    runOnUiThread(()->{if(!current(request)||!account.equals(WidgetStore.user(this)))return;
-     JSONArray items=data.optJSONArray("purchases");
-     if(items==null){message.setText(R.string.widget_server_update);return;}
-     for(int i=0;i<items.length();i++){
-      JSONObject item=items.optJSONObject(i);CheckBox pick=new CheckBox(this);pick.setText(item.optString("title"));pick.setTag(item.optString("id"));pick.setMinHeight(dp(48));
-      JSONArray oldPins=old.optJSONArray("pins");if(family.equals(old.optString("family"))&&oldPins!=null)for(int j=0;j<oldPins.length();j++)if(oldPins.optString(j).equals(pick.getTag()))pick.setChecked(true);
-      choices.addView(pick);
-     }
-     save.setEnabled(true);message.setText(items.length()==0?R.string.widget_no_pins:R.string.widget_pin_hint);
-    });
-   }catch(Exception ignored){runOnUiThread(()->{if(current(request))message.setText(R.string.widget_config_error);});}});
-  };
-  pinMode.setOnCheckedChangeListener((b,checked)->{++generation;loadPins.run();});
-  spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onItemSelected(AdapterView<?> parent,View v,int pos,long id){loadPins.run();}public void onNothingSelected(AdapterView<?> p){}});
   save.setOnClickListener(v->{try{
    String family=families.getJSONObject(spinner.getSelectedItemPosition()).getString("id");
    if(!WidgetStore.validID(family))throw new IllegalArgumentException();
-   JSONArray pins=new JSONArray();if(pinMode.isChecked())for(int i=0;i<choices.getChildCount();i++){CheckBox pick=(CheckBox)choices.getChildAt(i);if(pick.isChecked())pins.put(pick.getTag());}
-   if(pinMode.isChecked()&&(pins.length()==0||pins.length()>3)){message.setText(R.string.widget_pin_hint);return;}
-   WidgetStore.configure(this,widgetId,family,mine.isChecked(),chats.isChecked(),pins,owner);FamilyWidgetProvider.render(this,widgetId);FamilyWidgetWorker.refresh(this);
+   WidgetStore.configure(this,widgetId,family,mine.isChecked(),chats.isChecked(),new JSONArray(),owner);FamilyWidgetProvider.render(this,widgetId);FamilyWidgetWorker.refresh(this);
    setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widgetId));finish();
   }catch(Exception ignored){message.setText(R.string.widget_config_error);}});
  }

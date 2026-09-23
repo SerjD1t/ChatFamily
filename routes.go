@@ -62,6 +62,7 @@ func (a *app) routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/v1/application/settings", a.auth(a.updateApplicationSettings))
 	mux.HandleFunc("GET /api/v1/families", a.auth(a.families))
 	mux.HandleFunc("GET /api/v1/mobile/widget", a.auth(a.mobileWidget))
+	mux.HandleFunc("PUT /api/v1/families/{familyID}/needs/{itemID}/widget-pin", a.auth(a.widgetPin))
 	mux.HandleFunc("GET /api/v1/application/families", a.auth(a.applicationFamilies))
 	mux.HandleFunc("GET /api/v1/application/families/{familyID}/{list}", a.auth(a.applicationFamilies))
 	mux.HandleFunc("PATCH /api/v1/application/families/{familyID}", a.auth(a.applicationFamilies))

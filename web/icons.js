@@ -1,5 +1,6 @@
 // Fixed outline icons shared by message actions and auxiliary windows.
 const paths={
+ pin:'<path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4-1-6M12 15v6"/>',
  download:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
  close:'<path d="m6 6 12 12M6 18 18 6"/>',
  zoomIn:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6M10 7v6"/>',

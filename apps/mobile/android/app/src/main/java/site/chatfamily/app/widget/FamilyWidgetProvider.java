@@ -77,25 +77,35 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
   v.setViewVisibility(R.id.widget_chats,showChats?View.VISIBLE:View.GONE);
   v.setViewVisibility(R.id.widget_chat_count,showChats?View.VISIBLE:View.GONE);
   v.removeAllViews(R.id.widget_chats);
-  int chatRows=showChats?Math.min(2,Math.max(0,(height-210)/60)):0;
+  JSONArray chats=data.optJSONArray("chats");
+  int width=AppWidgetManager.getInstance(c).getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,250);
+  int chatRows=showChats&&chats!=null?WidgetPolicy.chatCount(width,chats.length()):0;
+  v.setViewVisibility(R.id.widget_chats,chatRows>0?View.VISIBLE:View.GONE);
   if(showChats){
    v.setTextViewText(R.id.widget_chat_count,c.getString(R.string.widget_chat_count,data.optLong("unreadCount")));
-   JSONArray chats=data.optJSONArray("chats");
    if(chats!=null)for(int i=0;i<Math.min(chatRows,chats.length());i++){
     JSONObject chat=chats.optJSONObject(i);if(chat==null)continue;
-    RemoteViews row=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);
-    row.setTextViewText(R.id.widget_row_title,chat.optString("title"));
-    row.setTextViewText(R.id.widget_row_meta,c.getString(R.string.widget_chat_unread,chat.optLong("unread")));
-    row.setOnClickPendingIntent(R.id.widget_row,launch(c,id,"chat",chat.optString("id")));
+    RemoteViews row=new RemoteViews(c.getPackageName(),R.layout.family_widget_chat);
+    String name=chat.optString("title"),icon=chat.optString("icon");
+    row.setTextViewText(R.id.widget_chat_initials,icon.isEmpty()?WidgetPolicy.initials(name):icon);
+    row.setTextViewText(R.id.widget_chat_name,name);
+    row.setTextViewText(R.id.widget_chat_badge,WidgetPolicy.badge(chat.optLong("unread")));
+    row.setContentDescription(R.id.widget_chat,name+" · "+c.getString(R.string.widget_chat_unread,chat.optLong("unread")));
+    android.graphics.Bitmap avatar=WidgetAvatars.bitmap(chat);
+    if(avatar!=null){row.setImageViewBitmap(R.id.widget_chat_avatar,avatar);row.setViewVisibility(R.id.widget_chat_avatar,View.VISIBLE);row.setViewVisibility(R.id.widget_chat_initials,View.INVISIBLE);}
+    row.setOnClickPendingIntent(R.id.widget_chat,launch(c,id,"chat",chat.optString("id")));
     v.addView(R.id.widget_chats,row);
    }
   }
-  int rows=WidgetPolicy.rows(height-(showChats?30+chatRows*60:0),c.getResources().getConfiguration().fontScale);
-  boolean pinned=config.optJSONArray("pins")!=null&&config.optJSONArray("pins").length()>0;
+  int chatHeight=showChats?24+(chatRows>0?70:0):0;
+  v.setViewVisibility(R.id.widget_body,height-chatHeight<130?View.GONE:View.VISIBLE);
+  if(height-chatHeight<260)v.setViewVisibility(R.id.widget_buttons,View.GONE);
+  int rows=WidgetPolicy.rows(height-chatHeight,c.getResources().getConfiguration().fontScale);
+  boolean pinned=data.optBoolean("savedPins")?data.optJSONArray("pinned")!=null&&data.optJSONArray("pinned").length()>0:config.optJSONArray("pins")!=null&&config.optJSONArray("pins").length()>0;
   if(pinned){
    v.setViewVisibility(R.id.widget_task_count,View.GONE);v.setViewVisibility(R.id.widget_tasks,View.GONE);v.setViewVisibility(R.id.widget_buttons,View.GONE);
    v.setTextViewText(R.id.widget_purchase_count,c.getString(R.string.widget_pin_mode));
-   if(cached)addPins(c,v,id,data.optJSONArray("pinned"),Math.max(1,Math.min(10,(int)((height-110-(showChats?30+chatRows*60:0))/(48*c.getResources().getConfiguration().fontScale)))),"pending".equals(error));
+   if(cached)addPins(c,v,id,data.optJSONArray("pinned"),Math.max(1,Math.min(10,(int)((height-110-chatHeight)/(48*c.getResources().getConfiguration().fontScale)))),"pending".equals(error));
   }else if(cached){addRows(c,v,id,R.id.widget_tasks,s.optJSONArray("tasks"),rows,s.optString("today"));addRows(c,v,id,R.id.widget_purchases,s.optJSONArray("shopping"),rows,s.optString("today"));}
   AppWidgetManager.getInstance(c).updateAppWidget(id,v);
  }
@@ -107,7 +117,7 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
    JSONArray entries=item.optJSONArray("checklist");int total=entries==null?0:entries.length(),done=0;
    for(int j=0;j<total;j++)if(entries.optJSONObject(j).optBoolean("completed"))done++;
    RemoteViews title=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);
-   title.setTextViewText(R.id.widget_row_title,item.optString("title"));title.setTextViewText(R.id.widget_row_meta,c.getString(R.string.widget_bought,done,total));
+   title.setTextViewText(R.id.widget_row_title,item.optString("title"));title.setTextViewText(R.id.widget_row_meta,total==0?c.getString(R.string.widget_open_purchase):c.getString(R.string.widget_bought,done,total));
    title.setOnClickPendingIntent(R.id.widget_row,launch(c,widget,"item",item.optString("id")));root.addView(R.id.widget_purchases,title);
    int shown=0,room=per-1;
    for(int j=0;j<total&&shown<room;j++){

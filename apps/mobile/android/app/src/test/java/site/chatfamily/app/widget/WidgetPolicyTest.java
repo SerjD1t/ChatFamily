@@ -4,6 +4,20 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class WidgetPolicyTest {
+    @Test public void unreadCirclesFitWidthAndKeepCounts() {
+        assertEquals(4,WidgetPolicy.chatCount(250,8));
+        assertEquals(5,WidgetPolicy.chatCount(320,8));
+        assertEquals(3,WidgetPolicy.chatCount(180,8));
+        assertEquals(0,WidgetPolicy.chatCount(320,0));
+        assertEquals("99+",WidgetPolicy.badge(120));
+        assertEquals("4",WidgetPolicy.badge(4));
+        assertEquals("AB",WidgetPolicy.initials(" Alpha Beta "));
+        assertEquals("?",WidgetPolicy.initials(""));
+        assertTrue(WidgetPolicy.avatarPath("/api/v1/users/user-1/avatar"));
+        assertFalse(WidgetPolicy.avatarPath("https://foreign.test/avatar"));
+        assertFalse(WidgetPolicy.avatarPath("/api/v1/users/../settings"));
+        assertFalse(WidgetPolicy.avatarPath("/api/v1/users/u/avatar?token=x"));
+    }
     @Test public void checklistActionsRejectStaleAccountConfigurationAndVersion() {
         assertTrue(WidgetPolicy.acceptsAction("a","a",4,4,2,2));
         assertFalse(WidgetPolicy.acceptsAction("a","b",4,4,2,2));

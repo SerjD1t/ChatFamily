@@ -41,8 +41,12 @@ public class FamilyWidgetWorker extends Worker {
   return Result.success();
  }
  static JSONObject fetch(JSONObject config,String user)throws Exception {
+  String cookie=android.webkit.CookieManager.getInstance().getCookie(WidgetHttp.ORIGIN);
   org.json.JSONArray pins=config.optJSONArray("pins");StringBuilder selected=new StringBuilder();
   if(pins!=null)for(int i=0;i<Math.min(3,pins.length());i++){String id=pins.optString(i);if(WidgetStore.validID(id)){if(selected.length()>0)selected.append(',');selected.append(id);}}
-  return WidgetHttp.get("?familyId="+config.optString("family")+"&mine="+config.optBoolean("mine")+"&chats="+config.optBoolean("chats")+"&pins="+selected+"&timezone="+URLEncoder.encode(ZoneId.systemDefault().getId(),"UTF-8"),user);
+  JSONObject data=WidgetHttp.get("?familyId="+config.optString("family")+"&mine="+config.optBoolean("mine")+"&chats="+config.optBoolean("chats")+"&savedPins=true&pins="+selected+"&timezone="+URLEncoder.encode(ZoneId.systemDefault().getId(),"UTF-8"),user);
+  WidgetAvatars.load(data);
+  if(cookie==null||!cookie.equals(android.webkit.CookieManager.getInstance().getCookie(WidgetHttp.ORIGIN)))throw new WidgetHttp.Status(409);
+  return data;
  }
 }

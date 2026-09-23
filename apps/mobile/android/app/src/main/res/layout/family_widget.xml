@@ -5,6 +5,7 @@
   <TextView android:id="@+id/widget_refresh" android:layout_width="44dp" android:layout_height="44dp" android:gravity="center" android:text="↻" android:textSize="24sp" android:textColor="@color/widget_accent" android:contentDescription="@string/widget_refresh"/>
   <TextView android:id="@+id/widget_settings" android:layout_width="44dp" android:layout_height="44dp" android:gravity="center" android:text="⋯" android:textSize="24sp" android:textColor="@color/widget_accent" android:contentDescription="@string/widget_settings"/>
  </LinearLayout>
+ <LinearLayout android:id="@+id/widget_body" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical">
  <TextView android:id="@+id/widget_task_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_tasks" android:textColor="@color/widget_text" android:textStyle="bold" android:textSize="13sp" android:maxLines="2"/>
  <LinearLayout android:id="@+id/widget_tasks" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/>
  <TextView android:id="@+id/widget_purchase_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="@string/widget_purchases" android:textColor="@color/widget_text" android:textStyle="bold" android:textSize="13sp"/>
@@ -13,7 +14,8 @@
   <TextView android:id="@+id/widget_add_task" android:layout_width="0dp" android:layout_weight="1" android:layout_height="44dp" android:gravity="center" android:text="@string/widget_add_task" android:textSize="14sp" android:textColor="@color/widget_accent"/>
   <TextView android:id="@+id/widget_add_purchase" android:layout_width="0dp" android:layout_weight="1" android:layout_height="44dp" android:gravity="center" android:text="@string/widget_add_purchase" android:textSize="14sp" android:textColor="@color/widget_accent"/>
  </LinearLayout>
+ </LinearLayout>
  <TextView android:id="@+id/widget_chat_count" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/widget_text" android:textSize="13sp" android:textStyle="bold" android:visibility="gone"/>
- <LinearLayout android:id="@+id/widget_chats" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone"/>
+ <LinearLayout android:id="@+id/widget_chats" android:layout_width="match_parent" android:layout_height="70dp" android:orientation="horizontal" android:visibility="gone"/>
  <TextView android:id="@+id/widget_updated" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_choose_family" android:textColor="@color/widget_muted" android:textSize="11sp" android:maxLines="3"/>
 </LinearLayout>

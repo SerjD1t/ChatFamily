@@ -22,6 +22,7 @@ export function initIncomingShares({ user, locale, request, onSent }) {
   const q = s => dialog.querySelector(s), error = q(".shareError"), form = q("form"), search = q(".shareRecipientSearch"), caption = q("textarea");
   let jobs = [], selected = null, recipient = null, recipients = [], loading = false, busy = false, choosing = 0;
   const seen = new Set(), acknowledged = new Set();
+  let haveSnapshot = false;
   const filesMarkup = j => `<ul>${j.files.map(f => `<li>${escape(f.name)} · ${(f.bytes / 1048576).toFixed(1)} ${t("МиБ", "MiB")}</li>`).join("")}</ul>`;
   const labels = () => {
     const pending = jobs.filter(j => j.state !== "sent").length;
@@ -124,12 +125,16 @@ export function initIncomingShares({ user, locale, request, onSent }) {
       syncMarkup(q(".shareQueue"), jobs.filter(j => j.state !== "sent").map(j => `<article class="shareJob" data-job="${j.id}"><strong>${escape(state(j))}</strong>${filesMarkup(j)}${j.files.length ? "" : `<p>${escape((j.body || "").slice(0,100))}</p>`}${j.error ? `<p>${escape(j.error)}</p>` : ""}<div class="actions">${j.state === "draft" ? `<button type="button" data-id="${j.id}" data-action="choose">${selected === j.id ? t("Получатель ниже", "Recipient below") : t("Кому отправить", "Choose recipient")}</button>` : ""}${j.state === "failed" ? `<button type="button" data-id="${j.id}" data-action="retry">${t("Повторить", "Retry")}</button>` : ""}${["draft","failed"].includes(j.state) ? `<button type="button" class="secondary" data-id="${j.id}" data-action="discard">${t("Отменить", "Discard")}</button>` : ""}</div></article>`).join("") || `<p class="shareHelp">${t("Нет ожидающих вложений", "No pending attachments")}</p>`);
       syncMarkup(history.querySelector(".shareHistoryList"), jobs.filter(j => j.state === "sent").sort((a,b) => (b.sentAt || b.createdAt || 0)-(a.sentAt || a.createdAt || 0)).slice(0,50).map(j => `<article class="shareJob"><strong>${t("Отправлено", "Sent")}</strong><time>${escape(new Date(j.sentAt || j.createdAt || Date.now()).toLocaleString(locale() === "en" ? "en-GB" : "ru-RU"))}</time>${filesMarkup(j)}${j.body ? `<p>${escape(j.body.slice(0,100))}</p>` : ""}</article>`).join("") || `<p>${t("История пока пуста", "No sent shares yet")}</p>`);
       for (const j of jobs) {
-        if (!seen.has(j.id) && j.state === "draft" && !document.querySelector("dialog[open]")) {
+        // A saved draft is not a new Android Share action. Old APKs use changes
+        // after the initial snapshot; new APKs provide a one-shot launch signal.
+        const newlyShared=result.shareOpenRequests ? result.openId===j.id : haveSnapshot&&!seen.has(j.id);
+        if (newlyShared && j.state === "draft" && !document.querySelector("dialog[open]")) {
           dialog.showModal(); if (!selected) void choose(j.id);
         }
         seen.add(j.id);
         if (j.state === "sent" && !acknowledged.has(j.id)) { acknowledged.add(j.id); onSent(j.conversationId); }
       }
+      haveSnapshot = true;
     } catch (e) { error.textContent = e.message; }
     finally { loading = false; }
   }

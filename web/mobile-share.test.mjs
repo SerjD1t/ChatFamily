@@ -12,7 +12,8 @@ test('Android shares require explicit confirmation and preserve the chat DOM', {
  globalThis.Option=dom.window.Option;
  let jobs=[{id:'12345678-1234-1234-1234-123456789abc',state:'draft',body:'Shared link',files:[{name:'<unsafe>.txt',bytes:12}]}];
  const submissions=[];
- const plugin={list:async()=>({jobs}),submit:async data=>{submissions.push(data);jobs=[{...jobs[0],...data,state:'queued'}];},discard:async()=>{jobs=[];}};
+ let openId='',modern=true;
+ const plugin={list:async()=>{const result={jobs,...(modern?{shareOpenRequests:true,openId}:{})};openId='';return result;},submit:async data=>{submissions.push(data);jobs=[{...jobs[0],...data,state:'queued'}];},discard:async()=>{jobs=[];}};
  globalThis.Capacitor={isNativePlatform:()=>true,registerPlugin:()=>plugin};
  const original=globalThis.setInterval; let tick; globalThis.setInterval=fn=>{tick=fn;return 1;};
  try {
@@ -22,7 +23,12 @@ test('Android shares require explicit confirmation and preserve the chat DOM', {
   initIncomingShares({user:{ID:'u1',Name:'Me'},locale:()=> 'en',request,onSent:()=>{}});
   await new Promise(r=>setTimeout(r,0));
   assert.equal(submissions.length,0,'Receiving files must not send');
-  assert.ok(document.querySelector('dialog[open]'));
+  assert.equal(document.querySelector('dialog[open]'),null,'ordinary entry with old draft must stay in chat');
+  await tick();assert.equal(document.querySelector('dialog[open]'),null,'polling old draft must stay quiet');
+  openId=jobs[0].id;await tick();await new Promise(r=>setTimeout(r,0));
+  assert.ok(document.querySelector('dialog[open]'),'new Android share opens once');
+  document.querySelector('.shareClose').click();await tick();assert.equal(document.querySelector('dialog[open]'),null,'dismissed share must not reopen');
+  document.querySelector('.mobileInboxButton').click();await new Promise(r=>setTimeout(r,0));
   assert.ok(document.querySelector('.shareQueue').textContent.includes('<unsafe>.txt'));
   assert.equal(document.querySelector('unsafe'),null);
   document.querySelector('[data-action="choose"]').click();
@@ -41,5 +47,7 @@ test('Android shares require explicit confirmation and preserve the chat DOM', {
   assert.equal(document.querySelector('#message'),message); assert.equal(document.querySelector('#draft'),draft); assert.equal(draft.value,'Unsent draft');
   jobs=[{id:'other',userId:'another',state:'failed',body:'Private',files:[]}]; await tick();
   assert.equal(document.querySelector('.shareQueue').textContent.includes('Private'),false);
+  modern=false;jobs=[{id:'legacy-new',state:'draft',body:'New legacy share',files:[]}];await tick();
+  assert.ok(document.querySelector('.mobileShareDialog').open,'legacy APK detects a new share after initial snapshot');
  } finally { globalThis.setInterval=original; delete globalThis.Capacitor; dom.window.close(); }
 });

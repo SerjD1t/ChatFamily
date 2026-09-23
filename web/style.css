@@ -44,6 +44,8 @@
 .needDialog { width: min(38rem,calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1.1rem; }
 .needDialogHead { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .needDialogHead h3 { margin: 0; }
+.needDialogHead .needWidgetPin { margin-left:auto; display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; padding:.4rem; }
+.needWidgetPin[aria-pressed="true"] { color:var(--accent); box-shadow:inset 0 0 0 2px currentColor; }
 .needDialog fieldset { display:grid; gap:.65rem; border:0; padding:0; margin: .8rem 0; min-width:0; }
 .needDialog fieldset:disabled { opacity: .8; }
 .needDialog form { margin: .8rem 0; }

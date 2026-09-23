@@ -90,7 +90,7 @@ public class IncomingSharePlugin extends Plugin {
         });
     }
     @PluginMethod public void list(PluginCall call) {
-        try { JSObject out=new JSObject(); out.put("jobs",ShareStore.list(getContext())); call.resolve(out); }
+        try { JSObject out=new JSObject();synchronized(ShareStore.class){out.put("jobs",ShareStore.list(getContext()));out.put("shareOpenRequests",true);out.put("openId",ShareOpenRequests.consume());}call.resolve(out); }
         catch(Exception e) { call.reject("Не удалось прочитать очередь"); }
     }
     @PluginMethod public void submit(PluginCall call) {
