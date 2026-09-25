@@ -14,14 +14,12 @@ export function initIncomingShares({ user, locale, request, onSent }) {
   document.querySelector("#myProfile").after(button);
   const dialog = document.createElement("dialog");
   dialog.className = "mobileShareDialog";
-  dialog.innerHTML = `<section class="dialogSurface"><header class="shareHeader"><h2></h2><button class="shareClose" type="button">×</button></header><p class="shareHelp muted"></p><div class="shareQueue"></div><form class="shareForm" hidden><label class="shareRecipientLabel"><span></span><input class="shareRecipientSearch" type="search" autocomplete="off"></label><div class="shareRecipientResults"></div><p class="shareRecipientSelected" role="status"></p><label class="shareCaptionLabel"><span></span><textarea class="shareCaption" maxlength="4000" rows="2"></textarea></label><div class="actions"><button class="shareSubmit" disabled></button></div></form><p class="shareError error" role="alert"></p><button class="shareHistoryLink" type="button"></button></section>`;
-  const history = document.createElement("dialog");
-  history.className = "mobileShareDialog shareHistoryDialog";
-  history.innerHTML = `<section class="dialogSurface"><header class="shareHeader"><h2></h2><button class="shareClose" type="button">×</button></header><p class="muted shareHelp"></p><div class="shareHistoryList"></div></section>`;
-  document.body.append(dialog, history);
+  dialog.innerHTML = `<section class="dialogSurface"><header class="shareHeader"><h2></h2><button class="shareClose" type="button">×</button></header><p class="shareHelp muted"></p><div class="shareQueue"></div><form class="shareForm" hidden><label class="shareRecipientLabel"><span></span><input class="shareRecipientSearch" type="search" autocomplete="off"></label><div class="shareRecipientResults"></div><p class="shareRecipientSelected" role="status"></p><label class="shareCaptionLabel"><span></span><textarea class="shareCaption" maxlength="4000" rows="2"></textarea></label><div class="actions"><button class="shareSubmit" disabled></button></div></form><p class="shareError error" role="alert"></p></section>`;
+  document.body.append(dialog);
   const q = s => dialog.querySelector(s), error = q(".shareError"), form = q("form"), search = q(".shareRecipientSearch"), caption = q("textarea");
   let jobs = [], selected = null, recipient = null, recipients = [], loading = false, busy = false, choosing = 0;
   const seen = new Set(), acknowledged = new Set();
+  const pendingNavigation = new Set();
   let haveSnapshot = false;
   const filesMarkup = j => `<ul>${j.files.map(f => `<li>${escape(f.name)} · ${(f.bytes / 1048576).toFixed(1)} ${t("МиБ", "MiB")}</li>`).join("")}</ul>`;
   const labels = () => {
@@ -34,16 +32,10 @@ export function initIncomingShares({ user, locale, request, onSent }) {
     q(".shareCaptionLabel span").textContent = t("Подпись или ссылка", "Caption or link");
     q(".shareSubmit").textContent = t("Отправить", "Send");
     q(".shareClose").ariaLabel = t("Закрыть", "Close");
-    q(".shareHistoryLink").textContent = t("История", "History");
-    history.querySelector("h2").textContent = t("История отправок", "Sent history");
-    history.querySelector(".shareHelp").textContent = t("Последние 50 отправок с этого устройства.", "Last 50 shares from this device.");
-    history.querySelector(".shareClose").ariaLabel = t("Назад к вложениям", "Back to attachments");
   };
   button.onclick = () => { userMenu.close(); labels(); if (!dialog.open) dialog.showModal(); void refresh(); };
   q(".shareClose").onclick = () => dialog.close();
-  q(".shareHistoryLink").onclick = () => { dialog.close(); history.showModal(); void refresh(); };
-  history.querySelector(".shareClose").onclick = () => { history.close(); dialog.showModal(); };
-  for (const d of [dialog,history]) d.addEventListener("click", e => { if (e.target === d) d.close(); });
+  dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(); });
   document.addEventListener("click", async e => {
     const link = e.target.closest("a[href]"); if (!link) return;
     const url = new URL(link.href), match = url.pathname.match(/^\/api\/v1\/attachments\/([a-zA-Z0-9_-]+)$/);
@@ -96,9 +88,11 @@ export function initIncomingShares({ user, locale, request, onSent }) {
       if (target.dataset.action === "discard") {
         if (job.state === "failed" && !globalThis.confirm(t("Убрать? При потере ответа сообщение могло уже отправиться. Проверьте чат перед новой отправкой.", "Remove? The message may already have been sent. Check the chat before sending again."))) return;
         await plugin.discard({id:job.id});
+        pendingNavigation.delete(job.id);
         if (selected === job.id) { selected = null; form.hidden = true; }
       } else {
         if (job.userId !== user.ID) throw Error(t("Войдите в исходный аккаунт", "Sign in to the original account"));
+        pendingNavigation.add(job.id);
         await plugin.submit({id:job.id,userId:user.ID,conversationId:job.conversationId,body:job.body});
       }
       await refresh();
@@ -110,6 +104,7 @@ export function initIncomingShares({ user, locale, request, onSent }) {
     try {
       let cid = recipient.key.slice(5);
       if (recipient.key.startsWith("user:")) cid = (await request(`/users/${encodeURIComponent(cid)}/direct-conversation`,{method:"POST"})).id;
+      pendingNavigation.add(selected);
       await plugin.submit({id:selected,userId:user.ID,conversationId:cid,body:caption.value.trim()});
       selected = null; form.hidden = true; dialog.close(); await refresh();
     } catch (e) { error.textContent = e.message; }
@@ -123,7 +118,6 @@ export function initIncomingShares({ user, locale, request, onSent }) {
       labels();
       const state = j => ({draft:t("Готово к отправке", "Ready to send"),queued:t("В очереди", "Queued"),uploading:`${t("Отправка", "Uploading")} ${j.progress || 0}%`,failed:t("Не отправлено", "Failed")}[j.state] || j.state);
       syncMarkup(q(".shareQueue"), jobs.filter(j => j.state !== "sent").map(j => `<article class="shareJob" data-job="${j.id}"><strong>${escape(state(j))}</strong>${filesMarkup(j)}${j.files.length ? "" : `<p>${escape((j.body || "").slice(0,100))}</p>`}${j.error ? `<p>${escape(j.error)}</p>` : ""}<div class="actions">${j.state === "draft" ? `<button type="button" data-id="${j.id}" data-action="choose">${selected === j.id ? t("Получатель ниже", "Recipient below") : t("Кому отправить", "Choose recipient")}</button>` : ""}${j.state === "failed" ? `<button type="button" data-id="${j.id}" data-action="retry">${t("Повторить", "Retry")}</button>` : ""}${["draft","failed"].includes(j.state) ? `<button type="button" class="secondary" data-id="${j.id}" data-action="discard">${t("Отменить", "Discard")}</button>` : ""}</div></article>`).join("") || `<p class="shareHelp">${t("Нет ожидающих вложений", "No pending attachments")}</p>`);
-      syncMarkup(history.querySelector(".shareHistoryList"), jobs.filter(j => j.state === "sent").sort((a,b) => (b.sentAt || b.createdAt || 0)-(a.sentAt || a.createdAt || 0)).slice(0,50).map(j => `<article class="shareJob"><strong>${t("Отправлено", "Sent")}</strong><time>${escape(new Date(j.sentAt || j.createdAt || Date.now()).toLocaleString(locale() === "en" ? "en-GB" : "ru-RU"))}</time>${filesMarkup(j)}${j.body ? `<p>${escape(j.body.slice(0,100))}</p>` : ""}</article>`).join("") || `<p>${t("История пока пуста", "No sent shares yet")}</p>`);
       for (const j of jobs) {
         // A saved draft is not a new Android Share action. Old APKs use changes
         // after the initial snapshot; new APKs provide a one-shot launch signal.
@@ -132,7 +126,15 @@ export function initIncomingShares({ user, locale, request, onSent }) {
           dialog.showModal(); if (!selected) void choose(j.id);
         }
         seen.add(j.id);
-        if (j.state === "sent" && !acknowledged.has(j.id)) { acknowledged.add(j.id); onSent(j.conversationId); }
+        if (["queued", "uploading"].includes(j.state)) pendingNavigation.add(j.id);
+        if (j.state === "sent" && !acknowledged.has(j.id)) {
+          acknowledged.add(j.id);
+          const navigate = pendingNavigation.delete(j.id);
+          if (navigate) {
+            dialog.close();
+            await onSent(j.conversationId, true);
+          }
+        }
       }
       haveSnapshot = true;
     } catch (e) { error.textContent = e.message; }

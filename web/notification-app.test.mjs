@@ -1,10 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {readFile} from 'node:fs/promises';
 const require=createRequire(import.meta.url);const {JSDOM}=require(process.env.TEST_JSDOM_PATH||'jsdom');
-test('cold notification renders old target, then explicit latest exits history mode',async()=>{
+test('cold notification opens despite push setup failure, then explicit latest exits history mode',async()=>{
  const dom=new JSDOM(await readFile(new URL('./index.html',import.meta.url),'utf8'),{url:'https://example.test/#conversation=direct&message=old'});
  for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history'])globalThis[name]=dom.window[name];
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true};dom.window.HTMLDialogElement.prototype.close=function(){this.open=false};dom.window.HTMLElement.prototype.scrollIntoView=function(){this.dataset.scrolled='true'};
  globalThis.matchMedia=()=>({matches:false});globalThis.CSS={escape:value=>value};globalThis.WebSocket=class{};
+ const originalNavigator=globalThis.navigator;let registrationCalls=0;
+ Object.defineProperty(globalThis,'navigator',{configurable:true,value:{serviceWorker:{addEventListener(){},register:async()=>{registrationCalls++;throw Error('registration unavailable');}}}});
+ dom.window.PushManager=class{};dom.window.Notification=class{};
  const requests=[];globalThis.fetch=async(url,options={})=>{
   const path=url.replace('/api/v1','');requests.push(path);let data=[];
   if(path==='/auth/me')data={ID:'self',Name:'Synthetic',Permissions:{}};
@@ -16,7 +19,7 @@ test('cold notification renders old target, then explicit latest exits history m
  };
  try{
   await import('./app.js?notification-target-test');await new Promise(r=>setTimeout(r,160));
-  assert.ok(requests.some(path=>path.includes('around=old')));assert.ok(document.querySelector('[data-message-id="old"].notificationTarget'));assert.ok(document.querySelector('[data-latest]'));
+  assert.equal(registrationCalls,1);assert.ok(requests.some(path=>path.includes('around=old')));assert.ok(document.querySelector('[data-message-id="old"].notificationTarget'));assert.ok(document.querySelector('[data-latest]'));
   document.querySelector('[data-latest]').click();await new Promise(r=>setTimeout(r,80));
   assert.ok(document.querySelector('[data-message-id="latest"]'));assert.equal(document.querySelector('[data-message-id="old"]'),null);assert.equal(document.querySelector('[data-latest]'),null);
   const bubble=document.querySelector('[data-message-id="latest"] .bubble');
@@ -25,5 +28,5 @@ test('cold notification renders old target, then explicit latest exits history m
   assert.ok(bubble.querySelector('.messageHeader [data-status-id="latest"] .receiptInfo'));
   assert.equal(bubble.querySelector('.receiptCount'),null);
   assert.equal(bubble.querySelector('.messageMeta').closest('.messageHeader'),bubble.firstElementChild);
- }finally{dom.window.close();for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history','matchMedia','CSS','WebSocket','fetch'])delete globalThis[name];}
+ }finally{Object.defineProperty(globalThis,'navigator',{configurable:true,value:originalNavigator});dom.window.close();for(const name of ['window','document','Node','NodeFilter','Element','MutationObserver','localStorage','sessionStorage','location','history','matchMedia','CSS','WebSocket','fetch'])delete globalThis[name];}
 });

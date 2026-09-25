@@ -4,6 +4,17 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class WidgetPolicyTest {
+    @Test public void clockReservesSpaceAndTransparencyIsBounded() {
+        assertEquals(255,WidgetPolicy.backgroundAlpha(0));
+        assertEquals(128,WidgetPolicy.backgroundAlpha(50));
+        assertEquals(0,WidgetPolicy.backgroundAlpha(100));
+        assertEquals(0,WidgetPolicy.backgroundAlpha(200));
+        assertEquals(255,WidgetPolicy.backgroundAlpha(-1));
+        assertEquals(300,WidgetPolicy.contentHeight(300,false,1));
+        assertEquals(220,WidgetPolicy.contentHeight(300,true,1));
+        assertEquals(140,WidgetPolicy.contentHeight(300,true,2));
+        assertEquals(0,WidgetPolicy.contentHeight(60,true,1));
+    }
     @Test public void unreadCirclesFitWidthAndKeepCounts() {
         assertEquals(4,WidgetPolicy.chatCount(250,8));
         assertEquals(5,WidgetPolicy.chatCount(320,8));

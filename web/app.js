@@ -63,11 +63,13 @@ let displayedConversation = null, displayedMessages = new Map(), olderCursor = "
 const notificationNavigation=initNotificationNavigation({ready:()=>appReady&&!!currentUser,open:async ({conversationID,messageID},isCurrent)=>{
   await loadConversations(false);
   if(!isCurrent())return;
-  if(!conversations.some(c=>c.id===conversationID))throw Error('Unavailable');
+  if(!conversations.some(c=>c.id===conversationID))throw Object.assign(Error('Unavailable'),{permanent:true});
   document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
   $('#messages').hidden=false;$('#onboarding').hidden=true;
-  await openConversation(conversationID,'',true,messageID);
-},onError:()=>announce(userPreferences.locale==='en'?'Message is unavailable or access has changed':'Сообщение недоступно или доступ к чату изменился','error')});
+  return await openConversation(conversationID,'',true,messageID,isCurrent);
+},onError:error=>announce(error.permanent||[403,404].includes(error.status)
+  ? (userPreferences.locale==='en'?'Message is unavailable or access has changed':'Сообщение недоступно или доступ к чату изменился')
+  : (userPreferences.locale==='en'?'Could not open the notification. Will retry when connected.':'Не удалось открыть уведомление. Повторим при восстановлении связи.'),'error')});
 const reactionRequests = new Map(), reactionWrites = new Set();
 let messageSyncTimer = null, messageSyncRunning = false, messageSyncAgain = false;
 const receipts = createReceipts({
@@ -403,7 +405,7 @@ async function startDirect(userID) {
     $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
   }
 }
-async function openConversation(id, before = "", navigate = true, targetMessage = "") {
+async function openConversation(id, before = "", navigate = true, targetMessage = "", notificationCurrent = null) {
   if(targetMessage || (navigate && !before) || active!==id){
     if(targetMessage || historyTarget){displayedConversation=null;displayedMessages=new Map();}
     historyTarget=targetMessage;
@@ -453,7 +455,7 @@ async function openConversation(id, before = "", navigate = true, targetMessage 
   if (!refreshing) $("#messages").innerHTML = loadingMarkup();
   try {
     const page = await request(`/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : historyTarget ? `&around=${encodeURIComponent(historyTarget)}` : ""}`);
-    if (version !== loadVersion || id !== active) return;
+    if (version !== loadVersion || id !== active || (notificationCurrent&&!notificationCurrent())) return false;
     if (displayedConversation !== id) { displayedMessages = new Map(); olderCursor = ""; displayedConversation = id; }
     if (!refreshing || before || targetMessage) olderCursor = page.nextBefore || "";
     for (const message of page.messages || []) displayedMessages.set(message.id, {...message,receiptSummary:displayedMessages.get(message.id)?.receiptSummary});
@@ -474,13 +476,15 @@ async function openConversation(id, before = "", navigate = true, targetMessage 
     scroller.scrollTop = before && refreshing ? currentScroll + scroller.scrollHeight - oldHeight : !refreshing || currentlyAtBottom ? scroller.scrollHeight : currentScroll;
     if(targetMessage){
       const target=scroller.querySelector(`[data-message-id="${CSS.escape(targetMessage)}"]`);
-      if(!target)throw Error(userPreferences.locale==='en'?'Message not found':'Сообщение не найдено');
+      if(!target)throw Object.assign(Error(userPreferences.locale==='en'?'Message not found':'Сообщение не найдено'),{permanent:true});
       target.scrollIntoView({block:'center'});target.classList.add('notificationTarget');
       setTimeout(()=>target.classList.remove('notificationTarget'),5000);
     }
     void receipts.deliver();
     void refreshStatuses();
+    return true;
   } catch (e) {
+    if(notificationCurrent)throw e;
     if (version === loadVersion) {
       if (refreshing) announce(e.message, "error");
       else $("#messages").innerHTML = `<p class="error">${safe(e.message)}</p>`;
@@ -629,7 +633,15 @@ async function startApp() {
   if (currentUser.Permissions?.manage_application)
     $("#administration").hidden = false;
   await loadConversations();
-  if (!isNative || (await nativeCapabilities()).incomingShares) initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: (cid) => { scheduleMessageSync(cid); void loadConversations(); } });
+  if (!isNative || (await nativeCapabilities()).incomingShares) {
+    const shareUser = currentUser.ID;
+    initIncomingShares({ user: currentUser, locale: () => userPreferences.locale, request, onSent: async (cid, navigate) => {
+      if (currentUser?.ID !== shareUser) return;
+      scheduleMessageSync(cid);
+      await loadConversations(false);
+      if (navigate && currentUser?.ID === shareUser) await openConversation(cid);
+    } });
+  }
   if (isNative && (await nativeCapabilities()).deviceStorage) initDeviceStorage({locale:()=>userPreferences.locale,confirmAction});
   if (isNative && (await nativeCapabilities()).appUpdates) initAppUpdate({locale:()=>userPreferences.locale,announce});
 }
@@ -1262,8 +1274,10 @@ async function bootApp() {
         return;
       } catch (error) { console.warn("Приглашение ожидает создания аккаунта", error); }
     }
-    await configurePush();
     await notificationNavigation.flush();
+    notificationNavigation.resume();
+    // Push subscription maintenance must not block opening a notification.
+    void configurePush().catch(()=>{});
     await initFamilyWidgets({user:currentUser.ID,open:async target=>{
       if(target.action==='chat'){
         await loadConversations(false);

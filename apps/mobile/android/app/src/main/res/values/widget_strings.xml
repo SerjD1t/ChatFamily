@@ -1,4 +1,8 @@
 <resources>
+ <string name="widget_show_clock">Показывать время, день недели и дату</string>
+ <string name="widget_transparency">Прозрачность фона: %1$d%%</string>
+ <string name="widget_text_style">Цвет текста (подберите под обои)</string>
+ <string-array name="widget_text_styles"><item>По теме Android</item><item>Тёмный текст</item><item>Светлый текст</item></string-array>
  <string name="widget_pin_mode">Закреплённые покупки</string>
  <string name="widget_pin_hint">Закрепляйте покупки булавкой в карточке ChatFamily (до трёх для каждой семьи). Они автоматически заменят общую сводку во всех ваших виджетах этой семьи.</string>
  <string name="widget_no_pins">Закрепите покупку булавкой в её карточке ChatFamily</string>

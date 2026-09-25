@@ -71,11 +71,21 @@ public class FamilyWidgetConfigure extends Activity {
   TextView purchases=new TextView(this);purchases.setText(R.string.widget_all_purchases);box.addView(purchases);
   CheckBox chats=new CheckBox(this);chats.setText(R.string.widget_show_chats);chats.setChecked(old.optBoolean("chats"));chats.setMinHeight(dp(48));box.addView(chats);
   TextView pinHint=new TextView(this);pinHint.setText(R.string.widget_pin_hint);box.addView(pinHint);
+  CheckBox clock=new CheckBox(this);clock.setText(R.string.widget_show_clock);clock.setChecked(old.optBoolean("clock"));clock.setMinHeight(dp(48));box.addView(clock);
+  TextView transparencyLabel=new TextView(this);box.addView(transparencyLabel);
+  SeekBar transparency=new SeekBar(this);transparency.setMax(100);transparency.setProgress(Math.max(0,Math.min(100,old.optInt("transparency"))));transparency.setMinimumHeight(dp(48));box.addView(transparency);
+  transparencyLabel.setText(getString(R.string.widget_transparency,transparency.getProgress()));transparency.setContentDescription(transparencyLabel.getText());
+  transparency.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+   public void onProgressChanged(SeekBar bar,int value,boolean fromUser){transparencyLabel.setText(getString(R.string.widget_transparency,value));bar.setContentDescription(transparencyLabel.getText());}
+   public void onStartTrackingTouch(SeekBar bar){} public void onStopTrackingTouch(SeekBar bar){}
+  });
+  TextView colorLabel=new TextView(this);colorLabel.setText(R.string.widget_text_style);box.addView(colorLabel);
+  Spinner textStyle=new Spinner(this);textStyle.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,getResources().getStringArray(R.array.widget_text_styles)));textStyle.setSelection(Math.max(0,Math.min(2,old.optInt("textStyle"))));textStyle.setMinimumHeight(dp(48));box.addView(textStyle);
   Button save=new Button(this);save.setText(R.string.widget_save);box.addView(save);
   save.setOnClickListener(v->{try{
    String family=families.getJSONObject(spinner.getSelectedItemPosition()).getString("id");
    if(!WidgetStore.validID(family))throw new IllegalArgumentException();
-   WidgetStore.configure(this,widgetId,family,mine.isChecked(),chats.isChecked(),new JSONArray(),owner);FamilyWidgetProvider.render(this,widgetId);FamilyWidgetWorker.refresh(this);
+   WidgetStore.configure(this,widgetId,family,mine.isChecked(),chats.isChecked(),new JSONArray(),owner,clock.isChecked(),transparency.getProgress(),textStyle.getSelectedItemPosition());FamilyWidgetProvider.render(this,widgetId);FamilyWidgetWorker.refresh(this);
    setResult(RESULT_OK,new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,widgetId));finish();
   }catch(Exception ignored){message.setText(R.string.widget_config_error);}});
  }

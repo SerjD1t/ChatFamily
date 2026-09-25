@@ -48,6 +48,12 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
  private static void renderLocked(Context c,int id){
   RemoteViews v=new RemoteViews(c.getPackageName(),R.layout.family_widget);
   JSONObject config=WidgetStore.config(c,id),data=WidgetStore.data(c,id);String user=WidgetStore.user(c);
+  int textStyle=config.optInt("textStyle");
+  v.setInt(R.id.widget_background,"setImageAlpha",WidgetPolicy.backgroundAlpha(config.optInt("transparency")));
+  if(textStyle==1||textStyle==2)v.setImageViewResource(R.id.widget_background,textStyle==1?R.drawable.widget_background_light:R.drawable.widget_background_dark);
+  for(int view:new int[]{R.id.widget_title,R.id.widget_task_count,R.id.widget_purchase_count,R.id.widget_chat_count,R.id.widget_clock})v.setTextColor(view,color(c,textStyle,R.color.widget_text));
+  for(int view:new int[]{R.id.widget_updated,R.id.widget_date})v.setTextColor(view,color(c,textStyle,R.color.widget_muted));
+  for(int view:new int[]{R.id.widget_refresh,R.id.widget_settings,R.id.widget_add_task,R.id.widget_add_purchase})v.setTextColor(view,color(c,textStyle,R.color.widget_accent));
   boolean configured=!user.isEmpty()&&user.equals(config.optString("owner"));
   long at=data.optLong("fetchedAt");boolean cached=configured&&WidgetPolicy.fresh(at,System.currentTimeMillis());
   String error=WidgetStore.error(c,id);
@@ -89,6 +95,7 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
     String name=chat.optString("title"),icon=chat.optString("icon");
     row.setTextViewText(R.id.widget_chat_initials,icon.isEmpty()?WidgetPolicy.initials(name):icon);
     row.setTextViewText(R.id.widget_chat_name,name);
+    row.setTextColor(R.id.widget_chat_name,color(c,textStyle,R.color.widget_text));
     row.setTextViewText(R.id.widget_chat_badge,WidgetPolicy.badge(chat.optLong("unread")));
     row.setContentDescription(R.id.widget_chat,name+" · "+c.getString(R.string.widget_chat_unread,chat.optLong("unread")));
     android.graphics.Bitmap avatar=WidgetAvatars.bitmap(chat);
@@ -98,6 +105,10 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
    }
   }
   int chatHeight=showChats?24+(chatRows>0?70:0):0;
+  float scale=c.getResources().getConfiguration().fontScale;
+  boolean clock=config.optBoolean("clock")&&WidgetPolicy.contentHeight(height,true,scale)>=chatHeight+Math.ceil(90*Math.max(1f,scale));
+  v.setViewVisibility(R.id.widget_clock_section,clock?View.VISIBLE:View.GONE);
+  height=WidgetPolicy.contentHeight(height,clock,scale);
   v.setViewVisibility(R.id.widget_body,height-chatHeight<130?View.GONE:View.VISIBLE);
   if(height-chatHeight<260)v.setViewVisibility(R.id.widget_buttons,View.GONE);
   int rows=WidgetPolicy.rows(height-chatHeight,c.getResources().getConfiguration().fontScale);
@@ -117,16 +128,19 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
    JSONArray entries=item.optJSONArray("checklist");int total=entries==null?0:entries.length(),done=0;
    for(int j=0;j<total;j++)if(entries.optJSONObject(j).optBoolean("completed"))done++;
    RemoteViews title=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);
+   styleRow(c,title,widget);
    title.setTextViewText(R.id.widget_row_title,item.optString("title"));title.setTextViewText(R.id.widget_row_meta,total==0?c.getString(R.string.widget_open_purchase):c.getString(R.string.widget_bought,done,total));
    title.setOnClickPendingIntent(R.id.widget_row,launch(c,widget,"item",item.optString("id")));root.addView(R.id.widget_purchases,title);
    int shown=0,room=per-1;
    for(int j=0;j<total&&shown<room;j++){
     JSONObject entry=entries.optJSONObject(j);if(entry.optBoolean("completed"))continue;
     RemoteViews row=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);row.setTextViewText(R.id.widget_row_title,"☐ "+entry.optString("text"));row.setViewVisibility(R.id.widget_row_meta,View.GONE);
+    styleRow(c,row,widget);
     if(!pending)row.setOnClickPendingIntent(R.id.widget_row,check(c,widget,item,entry.optString("id")));root.addView(R.id.widget_purchases,row);shown++;
    }
    if(total>0&&done==total&&room>0){
     RemoteViews row=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);row.setTextViewText(R.id.widget_row_title,c.getString(R.string.widget_complete));row.setViewVisibility(R.id.widget_row_meta,View.GONE);
+    styleRow(c,row,widget);
     if(!pending)row.setOnClickPendingIntent(R.id.widget_row,check(c,widget,item,""));root.addView(R.id.widget_purchases,row);
    }
   }
@@ -136,13 +150,27 @@ public class FamilyWidgetProvider extends AppWidgetProvider {
   for(int i=0;i<Math.min(count,items.length());i++){
    JSONObject item=items.optJSONObject(i);if(item==null)continue;
    RemoteViews row=new RemoteViews(c.getPackageName(),R.layout.family_widget_row);
+   styleRow(c,row,widget);
    String date=item.optString("date"),assignee=item.optString("assignee");
    String meta=(date.equals(today)?c.getString(R.string.widget_today):date)+(assignee.isEmpty()?"":" · "+assignee);
    row.setTextViewText(R.id.widget_row_title,item.optString("title"));row.setTextViewText(R.id.widget_row_meta,meta);
    row.setViewVisibility(R.id.widget_row_meta,meta.isEmpty()?View.GONE:View.VISIBLE);
-   row.setTextColor(R.id.widget_row_meta,c.getColor(!date.isEmpty()&&date.compareTo(today)<0?R.color.widget_overdue:R.color.widget_muted));
+   row.setTextColor(R.id.widget_row_meta,color(c,WidgetStore.config(c,widget).optInt("textStyle"),!date.isEmpty()&&date.compareTo(today)<0?R.color.widget_overdue:R.color.widget_muted));
    row.setOnClickPendingIntent(R.id.widget_row,launch(c,widget,"item",item.optString("id")));
    root.addView(container,row);
   }
+ }
+ private static void styleRow(Context c,RemoteViews row,int widget){
+  int style=WidgetStore.config(c,widget).optInt("textStyle");
+  row.setTextColor(R.id.widget_row_title,color(c,style,R.color.widget_text));
+  row.setTextColor(R.id.widget_row_meta,color(c,style,R.color.widget_muted));
+ }
+ private static int color(Context c,int style,int resource){
+  if(style!=1&&style!=2)return c.getColor(resource);
+  boolean light=style==2;
+  if(resource==R.color.widget_overdue)return light?0xffffaaaa:0xffa32828;
+  if(resource==R.color.widget_muted)return light?0xffe0e2f4:0xff454858;
+  if(resource==R.color.widget_accent)return light?0xffd2d3ff:0xff4a4b88;
+  return light?0xfff1f2fc:0xff25283a;
  }
 }

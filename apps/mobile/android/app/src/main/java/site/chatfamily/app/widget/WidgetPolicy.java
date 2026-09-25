@@ -3,6 +3,8 @@ package site.chatfamily.app.widget;
 /** Pure policy shared by cache/render code and local JVM tests. */
 public final class WidgetPolicy {
     private WidgetPolicy() {}
+    public static int backgroundAlpha(int transparency) {return Math.round(255*(100-Math.max(0,Math.min(100,transparency)))/100f);}
+    public static int contentHeight(int height,boolean clock,float fontScale) {return Math.max(0,height-(clock?(int)Math.ceil(80*Math.max(1f,fontScale)):0));}
     public static boolean avatarPath(String path) {return path!=null&&path.matches("/api/v1/users/[a-zA-Z0-9_-]{1,100}/avatar");}
     public static int chatCount(int widthDp,int available) {return Math.min(Math.max(0,available),Math.max(1,Math.min(5,(widthDp-20)/48)));}
     public static String badge(long unread) {return unread>99?"99+":Long.toString(Math.max(0,unread));}

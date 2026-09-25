@@ -1,4 +1,8 @@
 <resources>
+ <string name="widget_show_clock">Show time, weekday and date</string>
+ <string name="widget_transparency">Background transparency: %1$d%%</string>
+ <string name="widget_text_style">Text color (match your wallpaper)</string>
+ <string-array name="widget_text_styles"><item>Android theme</item><item>Dark text</item><item>Light text</item></string-array>
  <string name="widget_pin_mode">Pinned purchases</string>
  <string name="widget_pin_hint">Pin up to three purchases per family in their ChatFamily cards. They automatically replace the summary in all your widgets for that family.</string>
  <string name="widget_no_pins">Pin a purchase in its ChatFamily card</string>

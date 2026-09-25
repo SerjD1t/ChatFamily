@@ -18,10 +18,11 @@ public final class WidgetStore {
  }
  public static synchronized boolean clearIfCurrent(Context c,long expectedEpoch){if(epoch(c)!=expectedEpoch)return false;session(c,"");return true;}
  public static synchronized JSONObject config(Context c,int id){try{return new JSONObject(prefs(c).getString("config-"+id,"{}"));}catch(Exception e){return new JSONObject();}}
- public static synchronized void configure(Context c,int id,String family,boolean mine,boolean chats,org.json.JSONArray pins,String owner)throws Exception {
+ public static synchronized void configure(Context c,int id,String family,boolean mine,boolean chats,org.json.JSONArray pins,String owner,boolean clock,int transparency,int textStyle)throws Exception {
   if(!owner.equals(user(c))||owner.isEmpty())throw new IllegalStateException();
   if(pins.length()>3)throw new IllegalArgumentException();
   JSONObject value=new JSONObject().put("family",family).put("mine",mine).put("chats",chats).put("pins",pins).put("owner",owner);
+  value.put("clock",clock).put("transparency",Math.max(0,Math.min(100,transparency))).put("textStyle",Math.max(0,Math.min(2,textStyle)));
   prefs(c).edit().putLong("epoch",epoch(c)+1).putString("config-"+id,value.toString()).remove("data-"+id).remove("error-"+id).commit();
  }
  public static synchronized JSONObject data(Context c,int id){try{
